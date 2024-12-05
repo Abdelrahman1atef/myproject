@@ -90,7 +90,7 @@ WSGI_APPLICATION = 'myproject.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'sql_server.pyodbc',  # SQL Server backend
+        'ENGINE': 'mssql',  # SQL Server backend
         'NAME': 'stock',  # Your database name
         'HOST': 'MANATEF\MANATEF',  # Your server name with the instance
         'PORT': '1433',  # Leave empty to use the default port (1433)
