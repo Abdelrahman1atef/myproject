@@ -92,7 +92,7 @@ DATABASES = {
     'default': {
         'ENGINE': 'mssql',  # SQL Server backend
         'NAME': 'stock',  # Your database name
-        'HOST': '192.168.192.150',  # Your server name with the instance
+        'HOST': 'MANATEF\MANATEF',  # Your server name with the instance
         'PORT': '1433',  # Leave empty to use the default port (1433)
         'OPTIONS': {
             'driver': 'ODBC Driver 17 for SQL Server',  # ODBC driver
