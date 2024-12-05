@@ -33,7 +33,7 @@ class Command(BaseCommand):
             if image_url:
                 product.image_url = image_url
                 self.stdout.write(f"Saving product: {product.product_name_en}, Image URL: {product.image_url}")
-                product.save()
+                # product.product_image_url.save()
                 self.stdout.write(f"Updated {product.product_name_en} with image URL.")
             else:
                 self.stdout.write(f"No image found for {product.product_name_en}.")

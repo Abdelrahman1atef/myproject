@@ -13,7 +13,7 @@ class ProductListView(APIView):
 
         # Set up pagination
         paginator = PageNumberPagination()
-        paginator.page_size = 10  # Set the page size to 10 items per page
+        paginator.page_size = 20  # Set the page size to 10 items per page
         result_page = paginator.paginate_queryset(products, request)
 
         # Serialize the data
