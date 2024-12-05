@@ -5,13 +5,13 @@ from django.conf import settings
 
 class Command(BaseCommand):
     help = "Fetch product images using Google CSE"
-
+    
     def fetch_image(self, product_name):
         api_url = "https://www.googleapis.com/customsearch/v1"
         params = {
             "q": product_name,
-            "cx": settings.GOOGLE_CX,
-            "key": settings.GOOGLE_API_KEY,
+            "cx": "d399f94bac80148fa",#settings.GOOGLE_CX
+            "key": "AIzaSyAwFHc53IDe_KMVj_klWNfDiI-SKYtHI6w",#settings.GOOGLE_API_KEY
             "searchType": "image",
             "num": 1,
         }
