@@ -94,9 +94,6 @@ DATABASES = {
     'default': {
         'ENGINE': 'mssql',  # SQL Server backend
         'NAME': 'stock',  # Your database name
-        'USER': os.getenv('ManAtef'),
-        'PASSWORD': os.getenv('3221123'),
-        # 'HOST': os.getenv('DATABASE_HOST'),
         'HOST': 'MANATEF\MANATEF',  # Your server name with the instance
         'PORT': '1433',  # Leave empty to use the default port (1433)
         'OPTIONS': {
