@@ -22,33 +22,34 @@ class ProductListView(APIView):
         # Return paginated data as a JSON response
         return paginator.get_paginated_response(serializer.data)
 
+class ProductListByCompanyView(APIView):
+    def get(self, request, company_id):
+        # Query products by company_id
+        products = Product.objects.filter(company_id=company_id)
 
-from django.http import JsonResponse
-from django.conf import settings
-import requests
+        # Set up pagination
+        paginator = PageNumberPagination()
+        paginator.page_size = 20
+        result_page = paginator.paginate_queryset(products, request)
 
-def fetch_image_view(request):
-    products = Product.objects.all()
-    product_name = request.GET.get("product_name_en")
-    if not product_name:
-        return JsonResponse({"error": "Product name is required"}, status=400)
-    
-    api_url = "https://www.googleapis.com/customsearch/v1"
-    params = {
-        "q": product_name,
-        "cx": settings.GOOGLE_CX,
-        "key": settings.GOOGLE_API_KEY,
-        "searchType": "image",
-        "num": 1,
-    }
+        # Serialize the data
+        serializer = ProductSerializer(result_page, many=True)
 
-    try:
-        response = requests.get(api_url, params=params)
-        response.raise_for_status()  # Raises an error for bad responses
-        data = response.json()
-        if "items" in data and len(data["items"]) > 0:
-            return JsonResponse({"image_url": data["items"][0]["link"]})
-        else:
-            return JsonResponse({"error": "No image found"}, status=404)
-    except requests.exceptions.RequestException as e:
-        return JsonResponse({"error": f"Request failed: {str(e)}"}, status=500)
+        # Return paginated data as a JSON response
+        return paginator.get_paginated_response(serializer.data)
+
+class ProductListByGroupView(APIView):
+    def get(self, request, group_id):
+        # Query products by group_id
+        products = Product.objects.filter(group_id=group_id)
+
+        # Set up pagination
+        paginator = PageNumberPagination()
+        paginator.page_size = 20
+        result_page = paginator.paginate_queryset(products, request)
+
+        # Serialize the data
+        serializer = ProductSerializer(result_page, many=True)
+
+        # Return paginated data as a JSON response
+        return paginator.get_paginated_response(serializer.data)
