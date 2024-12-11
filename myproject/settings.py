@@ -94,11 +94,13 @@ DATABASES = {
     'default': {
         'ENGINE': 'mssql',  # SQL Server backend
         'NAME': 'stock',  # Your database name
+        'USER': 'ManAtef',  # Replace with the SQL Server username
+        'PASSWORD': '3221123',  # Replace with the SQL Server password
         'HOST': 'MANATEF\MANATEF',  # Your server name with the instance
         'PORT': '1433',  # Leave empty to use the default port (1433)
         'OPTIONS': {
             'driver': 'ODBC Driver 17 for SQL Server',  # ODBC driver
-            'trusted_connection': 'yes',  # Enable Windows Authentication
+            # 'trusted_connection': 'yes',  # Enable Windows Authentication
         },
     }
 }
