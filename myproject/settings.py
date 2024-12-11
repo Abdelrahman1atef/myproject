@@ -28,8 +28,11 @@ SECRET_KEY = 'django-insecure-pww(fs-4u@r1_g%8ij+@$==6zg&tl&d#gw+!b4vy$51q!i(d!n
 DEBUG = False
 
 ALLOWED_HOSTS = ['ManAtef.pythonanywhere.com']
-
-
+# DEBUG = os.getenv('DJANGO_DEBUG', 'False') == 'True'
+# if DEBUG:
+#     ALLOWED_HOSTS = ['.ngrok-free.app','127.0.0.1', 'localhost']
+# else:
+#     ALLOWED_HOSTS = ['ManAtef.pythonanywhere.com']
 # Application definition
 
 INSTALLED_APPS = [
@@ -45,13 +48,9 @@ INSTALLED_APPS = [
 REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
-        'rest_framework.renderers.BrowsableAPIRenderer',
-    ],
-    'DEFAULT_RENDERER_CLASSES': [
-        'rest_framework.renderers.JSONRenderer',
     ],
 }
-ALLOWED_HOSTS = ['.ngrok-free.app', '127.0.0.1', 'localhost']
+# ALLOWED_HOSTS = ['.ngrok-free.app', '127.0.0.1', 'localhost']
 
 
 
