@@ -5,6 +5,10 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from .models import Product
 from .serializers import ProductSerializer
+from django.shortcuts import render
+
+def home(request):
+    return render(request, 'api/api_list.html')
 
 class ProductListView(APIView):
     def get(self, request):

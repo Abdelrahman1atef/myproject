@@ -25,9 +25,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-pww(fs-4u@r1_g%8ij+@$==6zg&tl&d#gw+!b4vy$51q!i(d!n'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = True
 
-ALLOWED_HOSTS = ['ManAtef.pythonanywhere.com']
+# ALLOWED_HOSTS = ['ManAtef.pythonanywhere.com']
+ALLOWED_HOSTS = ['.ngrok-free.app','127.0.0.1', 'localhost']
+
 # DEBUG = os.getenv('DJANGO_DEBUG', 'False') == 'True'
 # if DEBUG:
 #     ALLOWED_HOSTS = ['.ngrok-free.app','127.0.0.1', 'localhost']
@@ -43,6 +45,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'dashboard',
+    'drf_yasg',
     'api',
 ]
 REST_FRAMEWORK = {
@@ -50,8 +54,22 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.JSONRenderer',
     ],
 }
-# ALLOWED_HOSTS = ['.ngrok-free.app', '127.0.0.1', 'localhost']
 
+# LOGGING = {
+#     'version': 1,
+#     'disable_existing_loggers': False,
+#     'handlers': {
+#         'console': {
+#             'class': 'logging.StreamHandler',
+#         },
+#     },
+#     'loggers': {
+#         'django.db.backends': {
+#             'level': 'DEBUG',
+#             'handlers': ['console'],
+#         },
+#     },
+# }
 
 
 
@@ -63,6 +81,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # 'django.middleware.debug.SQLLogMiddleware',
 ]
 
 ROOT_URLCONF = 'myproject.urls'
@@ -70,7 +89,7 @@ ROOT_URLCONF = 'myproject.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -144,8 +163,14 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
 STATIC_URL = '/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
+# # Directories where Django will look for static files to collect
+# STATICFILES_DIRS = [
+#     BASE_DIR / "static",  # Folder for additional static files you might add manually
+# ]
+
+# Folder where Django will collect static files for production
+STATIC_ROOT = BASE_DIR / "static"  # This should be a separate folder
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
