@@ -16,14 +16,42 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path,include
-from django.http import HttpResponse
+from django.conf import settings
+from django.conf.urls.static import static
+from django.shortcuts import render
+from django.urls import path, include
+from rest_framework import permissions
+from drf_yasg.views import get_schema_view
+from drf_yasg import openapi
+
+# Set up the schema view for Swagger UI
+schema_view = get_schema_view(
+   openapi.Info(
+      title="Ramze Pharmacy API",
+      default_version='v1',
+      description="API for managing products in the Ramze Pharmacy",
+      terms_of_service="https://www.google.com/policies/terms/",
+      contact=openapi.Contact(email="contact@ramzepharmacy.com"),
+      license=openapi.License(name="BSD License"),
+   ),
+   public=True,
+   permission_classes=(permissions.AllowAny,),
+)
 
 # Create a simple view for the root URL
 def home(request):
-    return HttpResponse("Welcome to the API!")
+    return render(request, 'home.html')  # Render home.html template
 
 urlpatterns = [
     path('', home, name='home'),  # Root URL pattern
     path('admin/', admin.site.urls),
+    path('dashboard/', include('dashboard.urls')),# Include dashboard URLs
     path('api/', include('api.urls')),  # Include the API URLs
+     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
 ]
+if settings.DEBUG:
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+
+
+
+
