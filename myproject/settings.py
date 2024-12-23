@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'dashboard',
     'drf_yasg',
+    'corsheaders',
     'api',
 ]
 REST_FRAMEWORK = {
@@ -72,7 +73,10 @@ REST_FRAMEWORK = {
 # }
 
 
-
+CORS_ALLOW_ALL_ORIGINS = True  # Allow requests from any origin (use with caution in production)
+CORS_ALLOWED_ORIGINS = [
+    'http://127.0.0.1:5500',  # Frontend URL
+]
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -81,7 +85,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    # 'django.middleware.debug.SQLLogMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
 ]
 
 ROOT_URLCONF = 'myproject.urls'
@@ -89,7 +93,8 @@ ROOT_URLCONF = 'myproject.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates'],
+        'DIRS': [BASE_DIR / 'templates',
+                 os.path.join(BASE_DIR, 'ui'),],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -164,13 +169,13 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 
-# # Directories where Django will look for static files to collect
-# STATICFILES_DIRS = [
-#     BASE_DIR / "static",  # Folder for additional static files you might add manually
-# ]
+# Add the path to your external frontend folder
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, 'staticfiles'),  # This points to the frontend folder
+]
 
 # Folder where Django will collect static files for production
-STATIC_ROOT = BASE_DIR / "static"  # This should be a separate folder
+STATIC_ROOT = os.path.join(BASE_DIR, 'static')  # This should be a separate folder
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field

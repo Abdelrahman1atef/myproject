@@ -23,6 +23,10 @@ from django.urls import path, include
 from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
+from django.conf import settings
+from django.conf.urls.static import static
+from django.urls import path
+from . import views
 
 # Set up the schema view for Swagger UI
 schema_view = get_schema_view(
@@ -44,6 +48,7 @@ def home(request):
 
 urlpatterns = [
     path('', home, name='home'),  # Root URL pattern
+    path('ui/', views.index, name='index'),  # Serve the frontend HTML at the root
     path('admin/', admin.site.urls),
     path('dashboard/', include('dashboard.urls')),# Include dashboard URLs
     path('api/', include('api.urls')),  # Include the API URLs
