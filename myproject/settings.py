@@ -49,29 +49,13 @@ INSTALLED_APPS = [
     'drf_yasg',
     'corsheaders',
     'api',
+    'debug_toolbar',
 ]
 REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
 }
-
-# LOGGING = {
-#     'version': 1,
-#     'disable_existing_loggers': False,
-#     'handlers': {
-#         'console': {
-#             'class': 'logging.StreamHandler',
-#         },
-#     },
-#     'loggers': {
-#         'django.db.backends': {
-#             'level': 'DEBUG',
-#             'handlers': ['console'],
-#         },
-#     },
-# }
-
 
 CORS_ALLOW_ALL_ORIGINS = True  # Allow requests from any origin (use with caution in production)
 CORS_ALLOWED_ORIGINS = [
@@ -86,6 +70,10 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'corsheaders.middleware.CorsMiddleware',
+    'debug_toolbar.middleware.DebugToolbarMiddleware',
+]
+INTERNAL_IPS = [
+    '127.0.0.1',
 ]
 
 ROOT_URLCONF = 'myproject.urls'

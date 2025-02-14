@@ -54,8 +54,14 @@ urlpatterns = [
     path('api/', include('api.urls')),  # Include the API URLs
      path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
 ]
+# Add Django Debug Toolbar URLs only in DEBUG mode
 if settings.DEBUG:
-    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+    import debug_toolbar
+    urlpatterns += [
+        path('__debug__/', include(debug_toolbar.urls)),
+    ]
+# if settings.DEBUG:
+#     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
 
 
