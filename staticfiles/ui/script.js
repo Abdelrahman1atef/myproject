@@ -3,25 +3,47 @@ const productList = document.getElementById('product-list');
 const loadingIndicator = document.getElementById('loading');
 const loadMoreButton = document.getElementById('load-more');
 
-// Function to fetch products from the API
-function fetchProducts(page) {
+// Helper function to set loading state
+function setLoading(isLoading) {
     if (loadingIndicator) {
-        loadingIndicator.style.display = 'block';  // Show loading indicator
+        loadingIndicator.style.display = isLoading ? 'block' : 'none';
     }
+    if (loadMoreButton) {
+        loadMoreButton.disabled = isLoading;
+    }
+}
 
-    fetch(`http://localhost:8000/api/allproducts/?page=${page}`)
-    .then(response => response.json())
-    .then(data => {
-        data.results.forEach(product => {
+// Function to check if an image exists (asynchronous)
+async function imageExists(imagePath) {
+    try {
+        const response = await fetch(imagePath, { method: 'HEAD' });
+        return response.ok;
+    } catch (error) {
+        return false;
+    }
+}
+
+// Function to fetch products from the API
+async function fetchProducts(page) {
+    setLoading(true); // Show loading indicator and disable button
+////////////////////////////////////////////////
+    try {
+        const response = await fetch(`http://localhost:8000/api/product/allproducts/?page=${page}`);
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        const data = await response.json();
+
+        // Create product cards
+        for (const product of data.results) {
             const productDiv = document.createElement('div');
             productDiv.classList.add('product');
-            
-            // Dynamically set the image path
+
             const productImage = document.createElement('img');
             const imagePath = `/static/images/${product.product_name_en}.jpg`;
 
-            // Check if the image exists; if not, use the default image
-            productImage.src = imageExists(imagePath) ? imagePath : '/static/images/drug.png'; 
+            // Use default image if the product image doesn't exist
+            productImage.src = (await imageExists(imagePath)) ? imagePath : '/static/images/drug.png';
             productImage.alt = product.product_name_en;
 
             productDiv.innerHTML = `
@@ -30,47 +52,37 @@ function fetchProducts(page) {
                 <p>Price: $${parseFloat(product.sell_price).toFixed(2)}</p>
                 <p>Group ID: ${parseFloat(product.group_id).toFixed(0)}</p>
             `;
-            productDiv.prepend(productImage);  // Add image at the top
+            productDiv.prepend(productImage); // Add image at the top
             productList.appendChild(productDiv);
-        });
-
-        if (loadingIndicator) {
-            loadingIndicator.style.display = 'none';  // Hide loading indicator after data is loaded
         }
 
-        // Show the "Load More" button if more products are available
-        if (data.next) {
-            loadMoreButton.style.display = 'block';  // Show "Load More" button
-        } else {
-            loadMoreButton.style.display = 'none';  // Hide if no more products
+        // Show/hide "Load More" button based on pagination
+        if (loadMoreButton) {
+            loadMoreButton.style.display = data.next ? 'block' : 'none';
         }
-    })
-    .catch(error => {
+    } catch (error) {
         console.error('Error fetching products:', error);
-    });
+        // Display error message in the DOM
+        const errorMessage = document.createElement('div');
+        errorMessage.className = 'error';
+        errorMessage.textContent = 'Failed to load products. Please try again later.';
+        productList.appendChild(errorMessage);
+    } finally {
+        setLoading(false); // Hide loading indicator and re-enable button
+    }
 }
 
-// Function to check if an image exists
-function imageExists(imagePath) {
-    const xhr = new XMLHttpRequest();
-    xhr.open('HEAD', imagePath, false);  // Synchronous request
-    xhr.send();
-    return xhr.status !== 404;  // Returns true if the image exists
-}
-
-// Load more products when the "Load More" button is clicked
-document.addEventListener("DOMContentLoaded", function() {
+// Event listener for "Load More" button
+document.addEventListener('DOMContentLoaded', () => {
     if (loadMoreButton) {
-        loadMoreButton.addEventListener('click', function() {
-            // Handle the button click
-            console.log("Load more clicked!");
+        loadMoreButton.addEventListener('click', () => {
             currentPage++;
-            fetchProducts(currentPage);  // Load more products
+            fetchProducts(currentPage);
         });
     } else {
         console.error('Load more button not found!');
     }
-});
 
-// Initial fetch of products
-fetchProducts(currentPage);
+    // Initial fetch of products
+    fetchProducts(currentPage);
+});

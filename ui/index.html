@@ -3,17 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Browse our list of products.">
     <title>Products</title>
-
-    <!-- Load the static files -->
     {% load static %}
     <link rel="stylesheet" href="{% static 'ui/styles.css' %}">
-    <script src="{% static 'ui/script.js' %}" defer></script>  <!-- defer to load after HTML -->
+    <script src="{% static 'ui/script.js' %}" defer></script>
 </head>
 <body>
     <h1>Product List</h1>
     <div id="loading" class="loading" style="display:none;">Loading products...</div>
     <div id="product-list"></div>
-    <button id="load-more">Load More</button>
+    <button id="load-more" aria-label="Load more products">Load More</button>
 </body>
 </html>
