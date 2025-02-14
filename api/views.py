@@ -13,37 +13,56 @@ from django.db import connection
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from django.core.cache import cache
+import json
+
 
 def home(request):
     return render(request, 'api/api_list.html')
 
 class ProductListView(APIView):
     def get(self, request):
-        # Check if the data is cached
-        cached_data = cache.get('product_list')
+        # Get the page number from the request
+        page_number = request.query_params.get('page', 1)
+
+        # Generate a unique cache key for this page
+        cache_key = f'product_list_page_{page_number}'
+        # print("Cache key:", cache_key)  # Debugging
+
+        # Check if the paginated data is cached
+        cached_data = cache.get(cache_key)
         if cached_data:
+            # print("Serving from cache:", cached_data)  # Debugging
             return Response(cached_data)
+
         # Define the raw SQL query
         query = """
             SELECT 
-                p.product_id,
-                p.product_code,
-                p.product_name_ar,
-                p.product_name_en,
-                p.sell_price,
-                p.company_id,
-                p.group_id,
-                p.product_image_url,
-                pg.group_name_en AS group_name_en,
-                pg.group_name_ar AS group_name_ar,
-                c.co_name_en AS co_name_en,
-                c.co_name_ar AS co_name_ar
-            FROM 
-                Products p
-            LEFT JOIN 
-                Product_groups pg ON p.group_id = pg.group_id
-            LEFT JOIN 
-                Companys c ON p.company_id = c.company_id
+    p.product_id,
+    p.product_code,
+    p.product_name_ar,
+    p.product_name_en,
+    p.sell_price,
+    p.product_image_url,
+    (
+        SELECT 
+            c.company_id,
+            c.co_name_en,
+            c.co_name_ar
+        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+    ) AS company,
+    (
+        SELECT 
+            pg.group_id,
+            pg.group_name_en,
+            pg.group_name_ar
+        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+    ) AS product_group
+FROM 
+    Products p
+LEFT JOIN 
+    Product_groups pg ON p.group_id = pg.group_id
+LEFT JOIN 
+    Companys c ON p.company_id = c.company_id
         """
 
         # Execute the raw SQL query
@@ -56,17 +75,31 @@ class ProductListView(APIView):
         products = []
         for row in rows:
             product = dict(zip(columns, row))
+            # Parse the nested JSON fields
+            product['company'] = json.loads(product['company'])
+            product['product_group'] = json.loads(product['product_group'])
             products.append(product)
+        # print("Raw data from database:", products)  # Debugging
 
         # Set up pagination
         paginator = PageNumberPagination()
         paginator.page_size = 20
         result_page = paginator.paginate_queryset(products, request)
 
-        # # Cache the results
-        # cache.set('product_list', result_page, timeout=60 * 15)  # Cache for 15 minutes
-        # Return paginated data as a JSON response
-        return paginator.get_paginated_response(result_page)
+        # Build the response data
+        response_data = {
+            "count": paginator.page.paginator.count,
+            "next": paginator.get_next_link(),
+            "previous": paginator.get_previous_link(),
+            "results": result_page,
+        }
+        # print("Response data before caching:", response_data)  # Debugging
+
+        # Cache the entire response
+        cache.set(cache_key, response_data, timeout=60 * 15)  # Cache for 15 minutes
+
+        # Return the response
+        return Response(response_data)
 #     def get(self, request):
 #         # Query all products from the database
 #         products = Product.objects.all()
