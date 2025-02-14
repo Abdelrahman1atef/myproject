@@ -3,8 +3,6 @@ from rest_framework import serializers
 from .models import Product , ProductGroup ,Companys
 
 class ProductGroupSerializer(serializers.ModelSerializer):
-    # group_name_en = serializers.SerializerMethodField()
-    # group_name_ar = serializers.SerializerMethodField()
     class Meta:
         model = ProductGroup
         fields = ['group_id', 'group_name_en', 'group_name_ar']
@@ -15,8 +13,6 @@ class CompanysSerializer(serializers.ModelSerializer):
         fields = ['company_id', 'co_name_en', 'co_name_ar']
 
 class ProductSerializer(serializers.ModelSerializer):
-     
-    
      product_group = serializers.SerializerMethodField()
      company = serializers.SerializerMethodField()
      class Meta:
@@ -28,9 +24,7 @@ class ProductSerializer(serializers.ModelSerializer):
             'product_name_en',
             'sell_price',
             'product_image_url',
-            # 'company_id',
             'company',
-            # 'group_id',
             'product_group',
             ]
      def get_product_group(self, obj):

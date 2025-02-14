@@ -3,18 +3,15 @@
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from .models import Product, ProductGroup,Companys
-from django.db.models import Prefetch
 from .serializers import ProductSerializer
 from django.shortcuts import render
-from django.http import HttpResponse
-from django.template import loader
 from django.db import connection
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from django.core.cache import cache
 import json
-
+from .models import Product
+from rest_framework import status
 
 def home(request):
     return render(request, 'api/api_list.html')
@@ -100,36 +97,6 @@ LEFT JOIN
 
         # Return the response
         return Response(response_data)
-#     def get(self, request):
-#         # Query all products from the database
-#         products = Product.objects.all()
-#  # Prefetch related ProductGroup and Companys data
-#         group_ids = products.values_list('group_id', flat=True).distinct()
-#         company_ids = products.values_list('company_id', flat=True).distinct()
-
-#         product_groups = {pg.group_id: pg for pg in ProductGroup.objects.filter(group_id__in=group_ids)}
-#         companies = {c.company_id: c for c in Companys.objects.filter(company_id__in=company_ids)}
-
-#         # Attach related data to products
-#         for product in products:
-#             product.product_group = product_groups.get(product.group_id)
-#             product.company = companies.get(product.company_id)
-
-#         # # Render the data into an HTML template
-#         # template = loader.get_template('api/products.html')
-#         # context = {'products': products}
-#         # return HttpResponse(template.render(context, request))
-
-#         # Set up pagination
-#         paginator = PageNumberPagination()
-#         paginator.page_size = 100  # Set the page size to 10 items per page
-#         result_page = paginator.paginate_queryset(products, request)
-
-#         # Serialize the data
-#         serializer = ProductSerializer(result_page, many=True)
-
-#         # Return paginated data as a JSON response
-#         return paginator.get_paginated_response(serializer.data)
 
 class ProductListByCompanyView(APIView):
     def get(self, request, company_id):
@@ -162,3 +129,12 @@ class ProductListByGroupView(APIView):
 
         # Return paginated data as a JSON response
         return paginator.get_paginated_response(serializer.data)
+
+class ProductDetailView(APIView):
+    def get(self, request, product_id):
+        try:
+            product = Product.objects.get(product_id=product_id)
+            serializer = ProductSerializer(product)
+            return Response(serializer.data)
+        except Product.DoesNotExist:
+            return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
