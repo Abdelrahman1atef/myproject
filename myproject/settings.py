@@ -12,7 +12,9 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 from pathlib import Path
 import os
-
+from django.db.utils import OperationalError
+from django.core.exceptions import ImproperlyConfigured
+from django.db.utils import OperationalError, InterfaceError
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,7 +27,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-pww(fs-4u@r1_g%8ij+@$==6zg&tl&d#gw+!b4vy$51q!i(d!n'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
 # ALLOWED_HOSTS = ['ManAtef.pythonanywhere.com']
 ALLOWED_HOSTS = ['.ngrok-free.app','127.0.0.1', 'localhost']
@@ -97,6 +99,13 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'myproject.wsgi.application'
 
+# Validate database configuration
+def validate_database_config():
+    required_settings = ['ENGINE', 'NAME', 'USER', 'PASSWORD', 'HOST', 'PORT']
+    for setting in required_settings:
+        if setting not in DATABASES['default']:
+            raise ImproperlyConfigured(f"Database setting '{setting}' is missing.")
+
 
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
@@ -115,11 +124,15 @@ DATABASES = {
         },
     }
 }
-
-# settings.py
-
-GOOGLE_API_KEY = 'AIzaSyAwFHc53IDe_KMVj_klWNfDiI-SKYtHI6w'
-GOOGLE_CX = 'b3014cc024cbd4be5'
+validate_database_config()
+# Handle database connection errors
+try:
+    from django.db import connection
+    connection.ensure_connection()
+except (OperationalError, InterfaceError) as e:
+    print(f"Database connection error: {e}")
+    # Notify the administrator or log the error
+    # You can also retry the connection or exit gracefully
 
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
