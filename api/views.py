@@ -12,6 +12,9 @@ from django.core.cache import cache
 import json
 from .models import Product
 from rest_framework import status
+from django.http import JsonResponse
+from django.utils.deprecation import MiddlewareMixin
+
 
 def home(request):
     return render(request, 'api/api_list.html')
@@ -34,32 +37,39 @@ class ProductListView(APIView):
         # Define the raw SQL query
         query = """
             SELECT 
-    p.product_id,
-    p.product_code,
-    p.product_name_ar,
-    p.product_name_en,
-    p.sell_price,
-    p.product_image_url,
-    (
-        SELECT 
-            c.company_id,
-            c.co_name_en,
-            c.co_name_ar
-        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-    ) AS company,
-    (
-        SELECT 
-            pg.group_id,
-            pg.group_name_en,
-            pg.group_name_ar
-        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-    ) AS product_group
-FROM 
-    Products p
-LEFT JOIN 
-    Product_groups pg ON p.group_id = pg.group_id
-LEFT JOIN 
-    Companys c ON p.company_id = c.company_id
+                p.product_id,
+                p.product_code,
+                p.product_name_ar,
+                p.product_name_en,
+                p.sell_price,
+                p.product_image_url,
+            	
+                (
+                    SELECT 
+                        c.company_id,
+                        c.co_name_en,
+                        c.co_name_ar
+                    FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+                ) AS company,
+                (
+                    SELECT 
+                        pg.group_id,
+                        pg.group_name_en,
+                        pg.group_name_ar
+                    FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+                ) AS product_group,
+                ISNULL(
+                    (SELECT CAST(SUM(pa.amount) AS INT) 
+                     FROM Product_Amount pa
+                     WHERE pa.product_id = p.product_id), 
+                    0
+                ) AS amount -- Replace NULL with 0
+            FROM 
+                Products p
+            LEFT JOIN 
+                Product_groups pg ON p.group_id = pg.group_id
+            LEFT JOIN 
+                Companys c ON p.company_id = c.company_id
         """
 
         # Execute the raw SQL query
@@ -100,41 +110,225 @@ LEFT JOIN
 
 class ProductListByCompanyView(APIView):
     def get(self, request, company_id):
-        # Query products by company_id
-        products = Product.objects.filter(company_id=company_id)
+        page_number = request.query_params.get('page', 1)
+        cache_key = f'product_list_company_{company_id}_page_{page_number}'
+        cached_data = cache.get(cache_key)
 
-        # Set up pagination
+        if cached_data:
+            return Response(cached_data)
+        query = f"""
+    SELECT 
+        p.product_id,
+        p.product_code,
+        p.product_name_ar,
+        p.product_name_en,
+        p.sell_price,
+        p.product_image_url,
+
+        -- Ensure company details are retrieved correctly
+        JSON_QUERY((
+            SELECT 
+                c.company_id,
+                c.co_name_en,
+                c.co_name_ar
+            FROM Companys c
+            WHERE c.company_id = p.company_id
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        )) AS company,
+
+        -- Ensure product group details are retrieved correctly
+        JSON_QUERY((
+            SELECT 
+                pg.group_id,
+                pg.group_name_en,
+                pg.group_name_ar
+            FROM Product_groups pg
+            WHERE pg.group_id = p.group_id
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+        )) AS product_group,
+
+        -- Correctly calculate amount, replacing NULL with 0
+        ISNULL((
+            SELECT CAST(SUM(pa.amount) AS INT) 
+            FROM Product_Amount pa 
+            WHERE pa.product_id = p.product_id
+        ), 0) AS amount
+
+    FROM Products p
+    WHERE p.company_id = {company_id}
+"""
+
+        with connection.cursor() as cursor:
+            cursor.execute(query)
+            columns = [col[0] for col in cursor.description]
+            rows = cursor.fetchall()
+
+        products = []
+        for row in rows:
+            product = dict(zip(columns, row))
+            product['company'] = json.loads(product['company']) if product['company'] else None
+            product['product_group'] = json.loads(product['product_group']) if product['product_group'] else None
+            products.append(product)
+
         paginator = PageNumberPagination()
         paginator.page_size = 20
         result_page = paginator.paginate_queryset(products, request)
 
-        # Serialize the data
-        serializer = ProductSerializer(result_page, many=True)
+        response_data = {
+            "count": paginator.page.paginator.count,
+            "next": paginator.get_next_link(),
+            "previous": paginator.get_previous_link(),
+            "results": result_page,
+        }
 
-        # Return paginated data as a JSON response
-        return paginator.get_paginated_response(serializer.data)
+        cache.set(cache_key, response_data, timeout=60 * 15)
+        return Response(response_data)
+
 
 class ProductListByGroupView(APIView):
     def get(self, request, group_id):
-        # Query products by group_id
-        products = Product.objects.filter(group_id=group_id)
+        page_number = request.query_params.get('page', 1)
+        cache_key = f'product_list_group_{group_id}_page_{page_number}'
+        cached_data = cache.get(cache_key)
 
-        # Set up pagination
+        if cached_data:
+            return Response(cached_data)
+
+        query = f"""
+            SELECT 
+                p.product_id,
+                p.product_code,
+                p.product_name_ar,
+                p.product_name_en,
+                p.sell_price,
+                p.product_image_url,
+
+                -- Get company details
+                JSON_QUERY((
+                    SELECT 
+                        c.company_id,
+                        c.co_name_en,
+                        c.co_name_ar
+                    FROM Companys c
+                    WHERE c.company_id = p.company_id
+                    FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+                )) AS company,
+
+                -- Get product group details
+                JSON_QUERY((
+                    SELECT 
+                        pg.group_id,
+                        pg.group_name_en,
+                        pg.group_name_ar
+                    FROM Product_groups pg
+                    WHERE pg.group_id = p.group_id
+                    FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+                )) AS product_group,
+
+                -- Calculate amount, replace NULL with 0
+                ISNULL((
+                    SELECT CAST(SUM(pa.amount) AS INT) 
+                    FROM Product_Amount pa 
+                    WHERE pa.product_id = p.product_id
+                ), 0) AS amount
+
+            FROM Products p
+            WHERE p.group_id = {group_id}
+        """
+
+        with connection.cursor() as cursor:
+            cursor.execute(query)
+            columns = [col[0] for col in cursor.description]
+            rows = cursor.fetchall()
+
+        products = []
+        for row in rows:
+            product = dict(zip(columns, row))
+            product['company'] = json.loads(product['company']) if product['company'] else None
+            product['product_group'] = json.loads(product['product_group']) if product['product_group'] else None
+            products.append(product)
+
         paginator = PageNumberPagination()
         paginator.page_size = 20
         result_page = paginator.paginate_queryset(products, request)
 
-        # Serialize the data
-        serializer = ProductSerializer(result_page, many=True)
+        response_data = {
+            "count": paginator.page.paginator.count,
+            "next": paginator.get_next_link(),
+            "previous": paginator.get_previous_link(),
+            "results": result_page,
+        }
 
-        # Return paginated data as a JSON response
-        return paginator.get_paginated_response(serializer.data)
+        cache.set(cache_key, response_data, timeout=60 * 15)
+        return Response(response_data)
 
 class ProductDetailView(APIView):
     def get(self, request, product_id):
-        try:
-            product = Product.objects.get(product_id=product_id)
-            serializer = ProductSerializer(product)
-            return Response(serializer.data)
-        except Product.DoesNotExist:
+        query = f"""
+            SELECT 
+                p.product_id,
+                p.product_code,
+                p.product_name_ar,
+                p.product_name_en,
+                p.sell_price,
+                p.product_image_url,
+
+                -- Get company details
+                JSON_QUERY((
+                    SELECT 
+                        c.company_id,
+                        c.co_name_en,
+                        c.co_name_ar
+                    FROM Companys c
+                    WHERE c.company_id = p.company_id
+                    FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+                )) AS company,
+
+                -- Get product group details
+                JSON_QUERY((
+                    SELECT 
+                        pg.group_id,
+                        pg.group_name_en,
+                        pg.group_name_ar
+                    FROM Product_groups pg
+                    WHERE pg.group_id = p.group_id
+                    FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+                )) AS product_group,
+
+                -- Calculate amount, replace NULL with 0
+                ISNULL((
+                    SELECT CAST(SUM(pa.amount) AS INT) 
+                    FROM Product_Amount pa 
+                    WHERE pa.product_id = p.product_id
+                ), 0) AS amount
+
+            FROM Products p
+            WHERE p.product_id = {product_id}
+        """
+
+        with connection.cursor() as cursor:
+            cursor.execute(query)
+            columns = [col[0] for col in cursor.description]
+            row = cursor.fetchone()
+
+        if row is None:
             return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        product = dict(zip(columns, row))
+        product['company'] = json.loads(product['company']) if product['company'] else None
+        product['product_group'] = json.loads(product['product_group']) if product['product_group'] else None
+
+        return Response(product)
+
+
+
+
+
+
+
+
+
+
+
+
+
