@@ -23,12 +23,20 @@ class Companys(models.Model):
         return self.co_name_en
     
 class ProductAmount(models.Model):
+    counter_id = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Add this field
     product_id = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)
-    amount = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)
+    store_id = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)
+    exp_date = models.DateField(blank=True, null=True)  # Expiry date
+    buy_price = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Buy price
+    amount = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Stock quantity
+
     class Meta:
         db_table = 'Product_Amount'
+        constraints = [
+            models.UniqueConstraint(fields=['product_id', 'store_id', 'counter_id'], name='unique_product_amount')
+        ]
     def __str__(self):
-        return self.amount
+         return f"Product ID: {self.product_id}, Store ID: {self.store_id}, Counter ID: {self.counter_id}"
 
 class ProductUnit(models.Model):
     unit_id = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)
@@ -73,9 +81,9 @@ class Product(models.Model):
 #######################################################################
 class SalesHeader(models.Model):
     sales_id = models.AutoField(primary_key=True)
-    store_id = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)
-    customer_id = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)
-    class_type = models.CharField(max_length=1, blank=True, null=True)  # Class type (e.g., '0' for normal sale)
+    store_id = models.IntegerField(blank=True, null=True)  # Updated from DecimalField to IntegerField
+    customer_id = models.IntegerField(blank=True, null=True)  # Updated from DecimalField to IntegerField
+    class_type = models.CharField(max_length=1, db_column='class', blank=True, null=True)  # Map to 'class' column
     product_number = models.IntegerField(blank=True, null=True)  # Number of products in the sale
     bill_money_befor = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Bill before discount
     total_bill = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Total bill
@@ -83,6 +91,8 @@ class SalesHeader(models.Model):
     total_bill_net = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Net total bill
     total_disc_per = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Discount percentage
     total_disc_money = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Discount amount
+    total_product_disc = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Product discount
+    total_product_disc = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Product discount percentage
     cashier_id = models.CharField(max_length=255, blank=True, null=True)  # Cashier ID
     notes = models.TextField(blank=True, null=True)  # Notes
     bill_other_expenses = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Other expenses
@@ -103,7 +113,7 @@ class SalesHeader(models.Model):
         return f"Sale #{self.sales_id}"
 
 class SalesDetails(models.Model):
-    details_id = models.AutoField(primary_key=True)
+    details_id = models.IntegerField(blank=True, null=True)  # Line item number (not globally unique)
     sales = models.ForeignKey(SalesHeader, on_delete=models.CASCADE, related_name="details")  # Relationship with SalesHeader
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="sales_details")  # Relationship with Product
     counter_id = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)
@@ -125,6 +135,7 @@ class SalesDetails(models.Model):
 
     class Meta:
         db_table = 'Sales_details'
+        unique_together = ('sales', 'details_id')  # Ensure uniqueness of (sales_id, details_id)
 
     def __str__(self):
         return f"Detail #{self.details_id} - {self.product}"
