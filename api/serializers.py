@@ -23,6 +23,7 @@ class ProductSerializer(serializers.ModelSerializer):
             'product_name_ar',
             'product_name_en',
             'sell_price',
+            'amount',
             'product_image_url',
             'company',
             'product_group',
@@ -54,6 +55,13 @@ class ProductSerializer(serializers.ModelSerializer):
             except Companys.DoesNotExist:
                 return None
         return None
+
+
+
+
+
+
+
 def to_representation(self, instance):
         representation = super().to_representation(instance)
         # Ensure no unexpected fields are added
