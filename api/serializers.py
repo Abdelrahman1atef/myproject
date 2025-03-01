@@ -1,6 +1,6 @@
 # api/serializers.py
 from rest_framework import serializers
-from .models import Product , ProductGroup ,Companys
+from .models import Product , ProductGroup ,Companys,ProductAmount, SalesHeader, SalesDetails, GedoFinancial, CashDepots
 
 class ProductGroupSerializer(serializers.ModelSerializer):
     class Meta:
@@ -57,9 +57,33 @@ class ProductSerializer(serializers.ModelSerializer):
         return None
 
 
+class ProductAmountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductAmount
+        fields = ['product', 'store_id', 'counter_id', 'exp_date', 'buy_price', 'amount']
 
+class SalesHeaderSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SalesHeader
+        fields = '__all__'
 
+class SalesDetailsSerializer(serializers.ModelSerializer):
+    product = ProductSerializer(read_only=True)  # Nested serializer for related product details
+    sales_header = SalesHeaderSerializer(read_only=True)  # Nested serializer for related sale header
 
+    class Meta:
+        model = SalesDetails
+        fields = '__all__'
+
+class GedoFinancialSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GedoFinancial
+        fields = '__all__'
+
+class CashDepotsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CashDepots
+        fields = '__all__'    
 
 
 def to_representation(self, instance):

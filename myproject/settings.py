@@ -31,12 +31,23 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['127.0.0.1', 'localhost','10.28.63.54','192.168.119.150','192.168.1.5']
 
-# DEBUG = os.getenv('DJANGO_DEBUG', 'False') == 'True'
-# if DEBUG:
-#     ALLOWED_HOSTS = ['.ngrok-free.app','127.0.0.1', 'localhost']
-# else:
-#     ALLOWED_HOSTS = ['ManAtef.pythonanywhere.com']
-# Application definition
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'django.db.backends': {
+            'level': 'DEBUG',  # Capture all SQL queries
+            'handlers': ['console'],  # Output to console
+            'propagate': False,
+        },
+    },
+}
 
 INSTALLED_APPS = [
     'django.contrib.admin',
