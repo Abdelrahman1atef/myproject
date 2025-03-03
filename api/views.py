@@ -17,6 +17,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.db import connection
 import logging
+from django.db import transaction
 
 def home(request):
     return render(request, 'api/api_list.html')
@@ -43,15 +44,37 @@ class ProductListView(APIView):
                 p.product_code,
                 p.product_name_ar,
                 p.product_name_en,
+                (
+				select unit_name_ar
+				from Product_units pu
+				where pu.unit_id=p.product_unit1
+				)as product_unit1,
                 p.sell_price,
-                ISNULL(
+
+				(
+				select unit_name_ar
+				from Product_units pu
+				where pu.unit_id=p.product_unit2
+				)as product_unit2,
+				p.product_unit1_2,
+				p.unit2_sell_price,
+				(
+				select unit_name_ar
+				from Product_units pu
+				where pu.unit_id=p.product_unit3
+				)as product_unit3,
+				p.product_unit1_3,
+				p.unit3_sell_price,
+				ISNULL(
                     (SELECT CAST(SUM(pa.amount) AS INT) 
                      FROM Product_Amount pa
                      WHERE pa.product_id = p.product_id), 
                     0
                 ) AS amount,
                 p.product_image_url,
-            	
+                (
+                select pd.pd_name_ar
+                )as product_description,
                 (
                     SELECT 
                         c.company_id,
@@ -73,6 +96,8 @@ class ProductListView(APIView):
                 Product_groups pg ON p.group_id = pg.group_id
             LEFT JOIN 
                 Companys c ON p.company_id = c.company_id
+            LEFT JOIN 
+                Product_description pd on pd.pd_id=p.pd_id
         """
 
         # Execute the raw SQL query
@@ -229,127 +254,224 @@ logger = logging.getLogger(__name__)
 
 class CreateSaleView(APIView):
     def post(self, request):
+        # Check if the request body is a list (multi-product) or a single product
+        if isinstance(request.data, list):
+            return self.create_multi_product_sale(request.data)
+        else:
+            return self.create_single_product_sale(request.data)
+
+    def create_single_product_sale(self, data):
         # Extract data from request
-        product_id = int(request.data.get('product_id', 0))  # Ensure integer
-        store_id = int(request.data.get('store_id', 0))      # Ensure integer
-        counter_id = float(request.data.get('counter_id', 0))  # Ensure float
-        quantity = int(request.data.get('quantity', 0))      # Ensure integer
+        product_id = int(data.get('product_id', 0))  # Ensure integer
+        store_id = int(data.get('store_id', 0))      # Ensure integer
+        quantity = int(data.get('quantity', 0))      # Ensure integer
+
+        # Validate quantity
+        if quantity <= 0:
+            return Response({"error": "Quantity must be a positive integer"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Step 1: Check if the product exists and has sufficient stock
-            product_amount = get_product_amount(product_id, store_id, counter_id)
+            # Step 1: Check if the product exists and has sufficient stock across all counters
+            product_amount = get_total_product_amount(product_id, store_id)
 
-            if not product_amount:
-                return Response({"error": "Product not found or insufficient stock"}, status=status.HTTP_400_BAD_REQUEST)
+            if not product_amount["total_amount"]:
+                return Response({
+                    "error": "Product not found or insufficient stock",
+                    "available_counters": product_amount["counter_stock"]
+                }, status=status.HTTP_400_BAD_REQUEST)
 
-            if product_amount["amount"] < quantity:
-                return Response({"error": "Insufficient stock"}, status=status.HTTP_400_BAD_REQUEST)
+            if product_amount["total_amount"] < quantity:
+                return Response({
+                    "error": "Insufficient stock for product ID: {}".format(product_id),
+                    "available_counters": product_amount["counter_stock"]
+                }, status=status.HTTP_400_BAD_REQUEST)
 
-            # Deduct stock
-            deduct_stock(product_id, store_id, counter_id, quantity)
-
-            # Step 2: Create financial transaction in Gedo_Financial
-            gf_data = {
-                "gf_gedo_type": 7,  # Assuming this is for sales
-                "gf_value": get_sell_price(product_id) * quantity,
-                "gf_from_type": 10,  # Inventory
-                "gf_to_type": 1,    # Cash
-                "gf_notes": f"Sale of {quantity} units of product {product_id}",
-                "gf_computer": "API_SERVER",
-                "gf_actual_cashier": "API_USER",
-                "gf_form_type": 11,
-                "insert_uid": "API_USER",
-            }
-            gedo_financial = GedoFinancial.objects.create(**gf_data)
-
-            # Step 3: Create sale header in Sales_Header
-            sales_header_data = {
-                "store_id": store_id,
-                "customer_id": 0,  # Assuming no customer for now
-                "class_type": "0",  # Normal sale
-                "product_number": 1,
-                "bill_money_befor": get_sell_price(product_id) * quantity,
-                "total_bill": get_sell_price(product_id) * quantity,
-                "gf_id": gedo_financial.gf_id,
-                "insert_uid": "API_USER",
-            }
-            sales_header = SalesHeader.objects.create(**sales_header_data)
-
-            # Step 4: Create sale detail in Sales_Details using raw SQL
+                # Step 2: Deduct stock from all counters where the product exists
+            counter_id = deduct_stock_from_all_counters(product_id, store_id, quantity)
+   
+            # Step 3: Create the sale record in the Sales table
+            sales_id = create_sales_record(store_id, "API_USER")  # Helper function to create sales record
+   
+            # Step 4: Create the sale detail in the Sales_details table
+            sell_price = get_sell_price(product_id)  # Helper function to fetch sell price
+            buy_price = get_buy_price(product_id)    # Helper function to fetch buy price
             create_sales_detail(
-                sales_id=sales_header.sales_id,
+                sales_id=sales_id,
                 product_id=product_id,
                 counter_id=counter_id,
                 quantity=quantity,
-                sell_price=get_sell_price(product_id),
-                buy_price=product_amount["buy_price"]
+                sell_price=sell_price,
+                buy_price=buy_price
             )
-
-            # Return success response
+   
+            # Step 5: Return success response
             return Response({
                 "message": "Sale created successfully",
-                "sales_id": sales_header.sales_id
+                "sales_id": sales_id,
+                "product_id": product_id,
+                "quantity": quantity,
+                "counter_id": counter_id
             }, status=status.HTTP_201_CREATED)
-
+            # Rest of the logic...
         except ValueError as e:
-            logger.error(f"ValueError: {str(e)}")
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            logger.error(f"Unexpected error: {str(e)}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
+    def create_multi_product_sale(self, data_list):
+     processed_products = []  # Track successfully processed products
+     failed_products = []     # Track products with issues
+ 
+     try:
+         with transaction.atomic():  # Ensure atomicity
+             # Validate stock for all products
+             for item in data_list:
+                 product_id = int(item.get('product_id', 0))
+                 store_id = int(item.get('store_id', 0))
+                 quantity = int(item.get('quantity', 0))
+ 
+                 if quantity <= 0:
+                     failed_products.append({"product_id": product_id, "reason": "Invalid quantity"})
+                     continue
+ 
+                 product_amount = get_total_product_amount(product_id, store_id)
+                 if not product_amount["total_amount"] or product_amount["total_amount"] < quantity:
+                     failed_products.append({
+                         "product_id": product_id,
+                         "reason": "Insufficient stock",
+                         "available_counters": product_amount["counter_stock"]
+                     })
+                     continue
+ 
+                 processed_products.append(item)
+ 
+             # If no products are processed, return an error
+             if not processed_products:
+                 return Response({"error": "No products could be processed", "failed_products": failed_products}, status=status.HTTP_400_BAD_REQUEST)
+ 
+             # Create a single sales header for processed products
+             total_quantity = sum(item['quantity'] for item in processed_products if 'quantity' in item and isinstance(item['quantity'], int))
+             total_bill = sum(get_sell_price(item['product_id']) * item['quantity'] for item in processed_products if 'product_id' in item)
+ 
+             sales_header_data = {
+                 "store_id": data_list[0].get('store_id', 0),
+                 "customer_id": 0,  # Assuming no customer for now
+                 "class_type": "0",  # Normal sale
+                 "product_number": len(processed_products),
+                 "bill_money_befor": float(total_bill),  # Convert Decimal to float
+                 "total_bill": float(total_bill),  # Convert Decimal to float
+                 "insert_uid": "API_USER",
+             }
+             sales_header = SalesHeader.objects.create(**sales_header_data)
+ 
+             # Process each product in the list
+             for item in processed_products:
+                 product_id = int(item.get('product_id', 0))
+                 store_id = int(item.get('store_id', 0))
+                 quantity = int(item.get('quantity', 0))
+ 
+                 # Deduct stock from all counters where the product exists
+                 counter_id = deduct_stock_from_all_counters(product_id, store_id, quantity)
+ 
+                 # Create sale detail
+                 create_sales_detail(
+                     sales_id=sales_header.sales_id,
+                     product_id=product_id,
+                     counter_id=counter_id,
+                     quantity=quantity,
+                     sell_price=float(get_sell_price(product_id)),  # Convert Decimal to float
+                     buy_price=float(product_amount["buy_price"])  # Convert Decimal to float
+                 )
+ 
+         # Return success response with details about processed and failed products
+         return Response({
+             "message": "Partial sale created successfully",
+             "sales_id": sales_header.sales_id,
+             "processed_products": [{"product_id": item['product_id'], "quantity": item['quantity']} for item in processed_products],
+             "failed_products": failed_products
+         }, status=status.HTTP_207_MULTI_STATUS)
+ 
+     except ValueError as e:
+         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+     except Exception as e:
+         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 # Helper function to fetch product amount
-def get_product_amount(product_id, store_id, counter_id):
+def get_total_product_amount(product_id, store_id):
     with connection.cursor() as cursor:
         cursor.execute("""
-            SELECT product_id, store_id, counter_id, amount, buy_price
+            SELECT product_id, store_id, SUM(amount) AS total_amount, MAX(buy_price) AS buy_price
             FROM Product_Amount
-            WHERE product_id = %s AND store_id = %s AND counter_id = %s
-        """, [product_id, store_id, counter_id])
+            WHERE product_id = %s AND store_id = %s
+            GROUP BY product_id, store_id
+        """, [product_id, store_id])
 
         result = cursor.fetchone()
         if result:
             return {
                 "product_id": result[0],
                 "store_id": result[1],
-                "counter_id": result[2],
-                "amount": result[3],
-                "buy_price": result[4],
+                "total_amount": result[2],  # Total amount across all counters
+                "buy_price":float(result[3]),  # Representative buy price
+                "counter_stock": get_all_counter_stock(product_id, store_id)  # Include counter stock
             }
         return None
 
-
 # Helper function to get sell price
 def get_sell_price(product_id):
-    try:
-        product = Product.objects.get(product_id=product_id)
-        return product.sell_price
-    except Product.DoesNotExist:
-        raise ValueError("Product not found")
-
-
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT sell_price FROM Products WHERE product_id = %s", [product_id])
+        result = cursor.fetchone()
+        return float(result[0]) if result else 0.0
+def get_buy_price(product_id):
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT buy_price FROM Products WHERE product_id = %s", [product_id])
+        result = cursor.fetchone()
+        return float(result[0]) if result else 0.0
+    
+def create_sales_record(store_id, user_id):
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            INSERT INTO Sales (store_id, user_id, insert_date)
+            VALUES (%s, %s, GETDATE())
+            OUTPUT INSERTED.sales_id
+        """, [store_id, user_id])
+        result = cursor.fetchone()
+        return result[0] if result else None    
 # Helper function to check stock
 def check_stock(product_id, store_id, counter_id, quantity):
-    product_amount = get_product_amount(product_id, store_id, counter_id)
+    product_amount = get_total_product_amount(product_id, store_id, counter_id)
     if product_amount and product_amount["amount"] >= quantity:
         return True
     return False
 
-
 # Helper function to deduct stock
-def deduct_stock(product_id, store_id, counter_id, quantity):
+def deduct_stock_from_all_counters(product_id, store_id, quantity):
+    if quantity <= 0:
+        raise ValueError("Quantity must be a positive integer")
+
     with connection.cursor() as cursor:
         cursor.execute("""
             UPDATE Product_Amount
-            SET amount = amount - %s
-            WHERE product_id = %s AND store_id = %s AND counter_id = %s
-            AND amount >= %s
-        """, [quantity, product_id, store_id, counter_id, quantity])
+            SET amount = CASE
+                WHEN amount >= %s THEN amount - %s
+                ELSE 0
+            END
+            OUTPUT INSERTED.counter_id, INSERTED.amount
+            WHERE product_id = %s AND store_id = %s AND amount > 0
+        """, [quantity, quantity, product_id, store_id])
 
-        if cursor.rowcount == 0:
-            raise ValueError("Insufficient stock or product not found")
+        # Check if the deduction was successful
+        updated_rows = cursor.fetchall()
+        total_deducted = sum(row[1] for row in updated_rows)
 
+        if total_deducted < quantity:
+            raise ValueError("Insufficient stock for product ID: {}".format(product_id))
+
+        # Return the counter_id from the first updated row
+        if updated_rows:
+            return updated_rows[0][0]  # Return the counter_id
+        else:
+            raise ValueError("No counters updated for product ID: {}".format(product_id))
 
 # Helper function to calculate the next details_id
 def get_next_details_id(sales_id):
@@ -363,6 +485,9 @@ def get_next_details_id(sales_id):
         return result[0] if result else 1
 
 def create_sales_detail(sales_id, product_id, counter_id, quantity, sell_price, buy_price):
+    # Ensure counter_id is not None
+    if counter_id is None:
+        raise ValueError("Counter ID cannot be None")
     # Calculate the next details_id
     details_id = get_next_details_id(sales_id)
 
@@ -377,11 +502,26 @@ def create_sales_detail(sales_id, product_id, counter_id, quantity, sell_price, 
             )
         """, [
             details_id, sales_id, product_id, counter_id, quantity, 1.0, 1,
-            sell_price, buy_price, 0.0, 0.0, sell_price * quantity, "N", 0.0, 0, None, "API_USER"
+            float(sell_price), float(buy_price), 0.0, 0.0, float(sell_price) * quantity, "N", 0.0, 0, None, "API_USER"
         ])
 
         if cursor.rowcount == 0:
             raise ValueError("Failed to create sale detail")
+
+def get_all_counter_stock(product_id, store_id):
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            SELECT counter_id, amount
+            FROM Product_Amount
+            WHERE product_id = %s AND store_id = %s AND amount > 0
+        """, [product_id, store_id])
+
+        results = cursor.fetchall()
+        if results:
+            # Return a dictionary with counter_id as key and amount as value
+            return {str(row[0]): int(row[1]) for row in results}
+        return {}
+
 
 
 query_head = """
@@ -390,14 +530,38 @@ query_head = """
                 p.product_code,
                 p.product_name_ar,
                 p.product_name_en,
+                (
+				select unit_name_ar
+				from Product_units pu
+				where pu.unit_id=p.product_unit1
+				)as product_unit1,
                 p.sell_price,
+
+				(
+				select unit_name_ar
+				from Product_units pu
+				where pu.unit_id=p.product_unit2
+				)as product_unit2,
+				p.product_unit1_2,
+				p.unit2_sell_price,
+				(
+				select unit_name_ar
+				from Product_units pu
+				where pu.unit_id=p.product_unit3
+				)as product_unit3,
+				p.product_unit1_3,
+				p.unit3_sell_price,
                 ISNULL((
                     SELECT CAST(SUM(pa.amount) AS INT) 
                     FROM Product_Amount pa 
                     WHERE pa.product_id = p.product_id
                 ), 0) AS amount,
                 p.product_image_url,
-
+                (
+                select pd.pd_name_ar
+                from Product_description pd
+                where pd.pd_id=p.pd_id
+                )as product_description,
                 -- Get company details
                 JSON_QUERY((
                     SELECT 
