@@ -11,17 +11,38 @@ from django.core.cache import cache
 import json
 from rest_framework import status
 from .models import Product, ProductAmount, SalesHeader, SalesDetails, GedoFinancial, CashDepots
-from .serializers import ProductSerializer, ProductAmountSerializer, SalesHeaderSerializer, SalesDetailsSerializer, GedoFinancialSerializer, CashDepotsSerializer
+from .serializers import ProductSearchSerializer, ProductAmountSerializer, SalesHeaderSerializer, SalesDetailsSerializer, GedoFinancialSerializer, CashDepotsSerializer
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.db import connection
 import logging
 from django.db import transaction
+from django.db.models import Q
 
 def home(request):
     return render(request, 'api/api_list.html')
 
+class ProductSearchView(APIView):
+    def get(self, request, *args, **kwargs):
+        # Get the search query from the URL parameter
+        query = request.query_params.get('q', None)
+
+        if query:
+            cache_key = f"search_{query}"
+            cached_results = cache.get(cache_key)
+            if cached_results:
+                return Response(cached_results, status=status.HTTP_200_OK)
+            
+            products = Product.objects.filter(
+                Q(product_name_en__icontains=query) |
+                Q(product_name_ar__icontains=query)
+            )[:20]
+            serializer = ProductSearchSerializer(products, many=True)
+            cache.set(cache_key, serializer.data, timeout=60)  # Cache for 60 seconds
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response([], status=status.HTTP_200_OK)    
+    
 class ProductListView(APIView):
     def get(self, request):
         # Get the page number from the request

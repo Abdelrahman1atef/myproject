@@ -62,6 +62,43 @@ class ProductSerializer(serializers.ModelSerializer):
                 return None
         return None
 
+class ProductSearchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Product
+        fields = [
+            'product_id',
+            'product_name_ar',
+            'product_name_en',
+            'sell_price',
+            'product_image_url',
+            ]
+    def get_product_group(self, obj):
+        # Fetch the ProductGroup using group_id
+        if obj.group_id:
+            try:
+                product_group = ProductGroup.objects.get(group_id=obj.group_id)
+                return {
+                    "group_id": product_group.group_id,
+                    "group_name_en": product_group.group_name_en,
+                    "group_name_ar": product_group.group_name_ar
+                }
+            except ProductGroup.DoesNotExist:
+                return None
+        return None
+
+    def get_company(self, obj):
+        # Fetch the Companys using company_id
+        if obj.company_id:
+            try:
+                company = Companys.objects.get(company_id=obj.company_id)
+                return {
+                    "company_id": company.company_id,
+                    "co_name_en": company.co_name_en,
+                    "co_name_ar": company.co_name_ar
+                }
+            except Companys.DoesNotExist:
+                return None
+        return None
 
 class ProductAmountSerializer(serializers.ModelSerializer):
     class Meta:
