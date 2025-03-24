@@ -1,6 +1,11 @@
 # api/serializers.py
 from rest_framework import serializers
-from .models import Product , ProductGroup ,Companys,ProductAmount, SalesHeader, SalesDetails, GedoFinancial, CashDepots
+from .models import Product , ProductGroup ,Companys,ProductAmount, SalesHeader, SalesDetails, GedoFinancial, CashDepots,ProductCategories
+
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductCategories
+        fields = ['category_id','category_name_ar']
 
 class ProductGroupSerializer(serializers.ModelSerializer):
     class Meta:
@@ -63,6 +68,7 @@ class ProductSerializer(serializers.ModelSerializer):
         return None
 
 class ProductSearchSerializer(serializers.ModelSerializer):
+    sell_price = serializers.DecimalField(max_digits=10, decimal_places=2)
     class Meta:
         model = Product
         fields = [
