@@ -1,4 +1,4 @@
-from pyngrok import ngrok, exception
+from pyngrok import ngrok, conf, exception
 import time
 
 # Variable to store the current tunnel, to disconnect it when necessary
@@ -13,8 +13,13 @@ def start_ngrok():
             ngrok.disconnect(current_tunnel.public_url)
             print(f"Disconnected previous tunnel: {current_tunnel.public_url}")
         
-        # Open a new HTTP tunnel (port 8000 for example)
-        current_tunnel = ngrok.connect(8000)
+        # Configure ngrok with the custom domain
+        custom_domain = "locust-eminent-urchin.ngrok-free.app"
+        pyngrok_config = conf.PyngrokConfig()
+        pyngrok_config.region = "us"  # Optional: Set the region (e.g., "us", "eu")
+        
+        # Start the tunnel with the custom domain
+        current_tunnel = ngrok.connect(8000, "http", hostname=custom_domain, pyngrok_config=pyngrok_config)
         print(f"Public URL: {current_tunnel.public_url}")
 
         # Keep the ngrok process running

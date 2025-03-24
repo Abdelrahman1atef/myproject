@@ -78,6 +78,15 @@ class Product(models.Model):
 
     def __str__(self):
         return self.product_name_en
+
+class ProductCategories(models.Model):
+    category_id = models.AutoField(primary_key=True)
+    category_name_ar = models.CharField(max_length=255, blank=True, null=True)
+    class Meta:
+        db_table = 'Product_Categories'
+    def __str__(self):
+        return self.category_name_ar
+
 #######################################################################
 class SalesHeader(models.Model):
     sales_id = models.AutoField(primary_key=True)

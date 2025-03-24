@@ -23,6 +23,25 @@ from django.db.models import Q
 def home(request):
     return render(request, 'api/api_list.html')
 
+class CategoryView(APIView):   
+    def get(self, request):
+        query = """
+            select *
+            from Product_Categories
+        """
+
+        with connection.cursor() as cursor:
+            cursor.execute(query)
+            columns = [col[0] for col in cursor.description]
+            rows = cursor.fetchall()
+
+        groups = []
+        for row in rows:
+            group = dict(zip(columns, row))
+            groups.append(group)
+
+        return Response(groups)
+    
 class ProductSearchView(APIView):
     def get(self, request, *args, **kwargs):
         # Get the search query from the URL parameter
@@ -38,6 +57,10 @@ class ProductSearchView(APIView):
                 Q(product_name_en__icontains=query) |
                 Q(product_name_ar__icontains=query)
             )[:20]
+            product = Product.objects.filter(product_name_en__icontains="test").first()
+            serializer = ProductSearchSerializer(product)
+            print(serializer.data)
+            
             serializer = ProductSearchSerializer(products, many=True)
             cache.set(cache_key, serializer.data, timeout=60)  # Cache for 60 seconds
             return Response(serializer.data, status=status.HTTP_200_OK)
@@ -207,7 +230,7 @@ class ProductListByGroupView(APIView):
 
         query = f"""
             {query_head}
-            WHERE p.group_id = {group_id}
+            WHERE pg.category_id = {group_id}
         """
 
         with connection.cursor() as cursor:
@@ -607,6 +630,8 @@ query_head = """
                 
 
             FROM Products p
+            -- Join with product_group to access category_id
+			JOIN product_groups pg ON p.group_id = pg.group_id
                 """
 
 
