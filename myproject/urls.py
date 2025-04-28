@@ -55,7 +55,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('dashboard/', include('dashboard.urls')),# Include dashboard URLs
     path('api/', include('api.urls')),  # Include the API URLs
-     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
+    path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
 ]
 # Add Django Debug Toolbar URLs only in DEBUG mode
 if settings.DEBUG:

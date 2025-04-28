@@ -27,27 +27,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-pww(fs-4u@r1_g%8ij+@$==6zg&tl&d#gw+!b4vy$51q!i(d!n'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = True
 
 ALLOWED_HOSTS = ['.ngrok-free.app','127.0.0.1', 'localhost']
 
-# LOGGING = {
-#     'version': 1,
-#     'disable_existing_loggers': False,
-#     'handlers': {
-#         'console': {
-#             'level': 'DEBUG',
-#             'class': 'logging.StreamHandler',
-#         },
-#     },
-#     'loggers': {
-#         'django.db.backends': {
-#             'level': 'DEBUG',  # Capture all SQL queries
-#             'handlers': ['console'],  # Output to console
-#             'propagate': False,
-#         },
-#     },
-# }
+AUTH_USER_MODEL = 'api.AppUser'
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -57,21 +41,38 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'rest_framework.authtoken',
     'dashboard',
     'drf_yasg',
     'corsheaders',
     'api',
     'debug_toolbar',
+    'django.contrib.sites',
+
 ]
+INSTALLED_APPS += [
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',
+    'allauth.socialaccount.providers.google',
+    'allauth.socialaccount.providers.facebook',
+]
+
 REST_FRAMEWORK = {
-    'DEFAULT_RENDERER_CLASSES': [
-        'rest_framework.renderers.JSONRenderer',
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
     ],
 }
 
 CORS_ALLOW_ALL_ORIGINS = True  # Allow requests from any origin (use with caution in production)
 CORS_ALLOWED_ORIGINS = [
     'http://127.0.0.1:5500',  # Frontend URL
+]
+CSRF_TRUSTED_ORIGINS = [
+    'https://locust-eminent-urchin.ngrok-free.app',
 ]
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -83,6 +84,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'debug_toolbar.middleware.DebugToolbarMiddleware',
+    'allauth.account.middleware.AccountMiddleware',  # Add this line
 ]
 INTERNAL_IPS = [
     '127.0.0.1',

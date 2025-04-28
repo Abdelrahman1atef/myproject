@@ -2,7 +2,7 @@
 from django.urls import path
 from . import views
 from .views import ProductListView,ProductListByCompanyView,ProductListByGroupView,ProductDetailView
-from .views import CreateSaleView,ProductSearchView,CategoryView
+from .views import ProductSearchView,CategoryView,LoginView,RegisterView,UserProfileView
 
 urlpatterns = [
     #GET
@@ -13,6 +13,9 @@ urlpatterns = [
     path('productsByGroup_id/<int:group_id>/', ProductListByGroupView.as_view(), name='product-list-by-group'),
     path('categories/', CategoryView.as_view(), name='category-list'),
     path('products/search/', ProductSearchView.as_view(), name='product-search'),
+    path('me/', UserProfileView.as_view(), name='user-profile'),
     # Post
-    path('create-sale/', CreateSaleView.as_view(), name='create-sale'),
+    # path('create-sale/', CreateSaleView.as_view(), name='create-sale'),
+    path('register/', RegisterView.as_view(), name='register'),
+    path('login/', LoginView.as_view(), name='login'),
 ]
