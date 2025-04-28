@@ -1,6 +1,9 @@
 # api/serializers.py
 from rest_framework import serializers
-from .models import Product , ProductGroup ,Companys,ProductAmount, SalesHeader, SalesDetails, GedoFinancial, CashDepots,ProductCategories
+from .models import Product , ProductGroup ,Companys,ProductImages,AppUser,ProductCategories
+from django.contrib.auth.hashers import make_password
+from django.contrib.auth import authenticate
+from rest_framework.authtoken.models import Token
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -17,9 +20,16 @@ class CompanysSerializer(serializers.ModelSerializer):
         model = Companys
         fields = ['company_id', 'co_name_en', 'co_name_ar']
 
+class ProductImageSerializer(serializers.ModelSerializer):
+    """Serializer for product images."""
+    class Meta:
+        model = ProductImages
+        fields = ['image_id', 'image_url', 'insert_date']
+
 class ProductSerializer(serializers.ModelSerializer):
      product_group = serializers.SerializerMethodField()
      company = serializers.SerializerMethodField()
+     product_images = serializers.SerializerMethodField()
      class Meta:
         model = Product
         fields = [
@@ -38,6 +48,7 @@ class ProductSerializer(serializers.ModelSerializer):
             'product_description',
             'company',
             'product_group',
+            'product_images',
             ]
      def get_product_group(self, obj):
         # Fetch the ProductGroup using group_id
@@ -66,6 +77,10 @@ class ProductSerializer(serializers.ModelSerializer):
             except Companys.DoesNotExist:
                 return None
         return None
+     def get_product_images(self, obj):
+        """Fetch all images associated with the product."""
+        images = ProductImages.objects.filter(product_id=obj.product_id).order_by('insert_date')
+        return ProductImageSerializer(images, many=True).data
 
 class ProductSearchSerializer(serializers.ModelSerializer):
     sell_price = serializers.DecimalField(max_digits=10, decimal_places=2)
@@ -106,37 +121,146 @@ class ProductSearchSerializer(serializers.ModelSerializer):
                 return None
         return None
 
-class ProductAmountSerializer(serializers.ModelSerializer):
+class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
-        model = ProductAmount
-        fields = ['product', 'store_id', 'counter_id', 'exp_date', 'buy_price', 'amount']
+        model = AppUser
+        fields = [
+            'id',
+            'email',
+            'phone',
+            'first_name',
+            'last_name',
+            'birthdate',
+            'gender',
+            'auth_type',
+            'social_id',
+            'profile_picture',
+            'is_active',
+            'is_staff',
+            'created_at',
+            'updated_at',
+            'last_login',
+        ]
 
-class SalesHeaderSerializer(serializers.ModelSerializer):
+class AppUserSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
+    # confirm_password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
+
     class Meta:
-        model = SalesHeader
-        fields = '__all__'
+        model = AppUser
+        fields = (
+            'email',
+            'phone',
+            'first_name',
+            'last_name',
+            'birthdate',
+            'gender',
+            'password',
+            'auth_type',
+            'social_id',
+            'profile_picture',
+            'is_active',
+            'is_staff',
+            'last_login')
+        extra_kwargs = {
+            'id': {'read_only': True},
+            'created_at': {'read_only': True},
+            'updated_at': {'read_only': True},
+        }
 
-class SalesDetailsSerializer(serializers.ModelSerializer):
-    product = ProductSerializer(read_only=True)  # Nested serializer for related product details
-    sales_header = SalesHeaderSerializer(read_only=True)  # Nested serializer for related sale header
+    def validate(self, data):
+        return data
 
-    class Meta:
-        model = SalesDetails
-        fields = '__all__'
+    def create(self, validated_data):
+        validated_data['password'] = make_password(validated_data['password'])
+        return super().create(validated_data)
 
-class GedoFinancialSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = GedoFinancial
-        fields = '__all__'
+class LoginSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=False, allow_null=True)
+    phone = serializers.CharField(required=False, allow_null=True)
+    password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
 
-class CashDepotsSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CashDepots
-        fields = '__all__'    
+    def validate(self, data):
+        email = data.get('email')
+        phone = data.get('phone')
+        password = data.get('password')
+    
+        if not email and not phone:
+            raise serializers.ValidationError("Email or Phone is required.")
+
+        if email:
+            user = authenticate(username=email, password=password)
+        elif phone:
+            try:
+                user = AppUser.objects.get(phone=phone)
+                user = authenticate(username=user.email, password=password)
+            except AppUser.DoesNotExist:
+                raise serializers.ValidationError("User with this phone does not exist.")
+        else:
+            raise serializers.ValidationError("Invalid credentials.")
+
+        if user and user.is_active:
+            # Update the last login time
+            user.update_last_login()
+            # Generate or retrieve a token for the user
+            token, created = Token.objects.get_or_create(user=user)
+            return {
+                'status': 'success',
+                'message': 'Login successful.',
+                'data': {
+                    'token': token.key,
+                    'user': self.user_to_dict(user)
+                }
+            }
+        raise serializers.ValidationError("##Invalid credentials.")
+
+    def user_to_dict(self, user):
+        return {
+            'id': user.id,
+            'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'birthdate': user.birthdate,
+            'gender': user.gender,
+            'auth_type': user.auth_type,
+            'social_id': user.social_id,
+            'profile_picture': user.profile_picture,
+            'is_active': user.is_active,
+            'is_staff': user.is_staff,
+            'last_login': user.last_login
+        }
+
+# class ProductAmountSerializer(serializers.ModelSerializer):
+#     class Meta:
+#         model = ProductAmount
+#         fields = ['product', 'store_id', 'counter_id', 'exp_date', 'buy_price', 'amount']
+
+# class SalesHeaderSerializer(serializers.ModelSerializer):
+#     class Meta:
+#         model = SalesHeader
+#         fields = '__all__'
+
+# class SalesDetailsSerializer(serializers.ModelSerializer):
+#     product = ProductSerializer(read_only=True)  # Nested serializer for related product details
+#     sales_header = SalesHeaderSerializer(read_only=True)  # Nested serializer for related sale header
+
+#     class Meta:
+#         model = SalesDetails
+#         fields = '__all__'
+
+# class GedoFinancialSerializer(serializers.ModelSerializer):
+#     class Meta:
+#         model = GedoFinancial
+#         fields = '__all__'
+
+# class CashDepotsSerializer(serializers.ModelSerializer):
+#     class Meta:
+#         model = CashDepots
+#         fields = '__all__'    
 
 
-def to_representation(self, instance):
-        representation = super().to_representation(instance)
-        # Ensure no unexpected fields are added
-        return {key: representation[key] for key in self.Meta.fields}
+# def to_representation(self, instance):
+#         representation = super().to_representation(instance)
+#         # Ensure no unexpected fields are added
+#         return {key: representation[key] for key in self.Meta.fields}
 
