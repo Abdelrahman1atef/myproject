@@ -205,19 +205,18 @@ class LoginSerializer(serializers.Serializer):
             # Generate or retrieve a token for the user
             token, created = Token.objects.get_or_create(user=user)
             return {
-                'status': 'success',
-                'message': 'Login successful.',
-                'data': {
+                
                     'token': token.key,
                     'user': self.user_to_dict(user)
-                }
+                
             }
-        raise serializers.ValidationError("##Invalid credentials.")
+        raise serializers.ValidationError("Invalid credentials.")
 
     def user_to_dict(self, user):
         return {
             'id': user.id,
             'email': user.email,
+            'phone':user.phone,
             'first_name': user.first_name,
             'last_name': user.last_name,
             'birthdate': user.birthdate,
