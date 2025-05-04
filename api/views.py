@@ -23,7 +23,6 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny
 from .serializers import AppUserSerializer, LoginSerializer
 from rest_framework.permissions import IsAuthenticated
-from .authentication import CustomTokenAuthentication
 
 def home(request):
     return render(request, 'api/api_list.html')
@@ -320,7 +319,6 @@ class ProductDetailView(APIView):
         return Response(product)
 
 class UserProfileView(APIView):
-    authentication_classes = [CustomTokenAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
