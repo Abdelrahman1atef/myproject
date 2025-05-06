@@ -4,6 +4,7 @@ from .models import Product , ProductGroup ,Companys,ProductImages,AppUser,Produ
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth import authenticate
 from rest_framework.authtoken.models import Token
+from django.core.exceptions import ValidationError
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -144,7 +145,6 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 class AppUserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
-    # confirm_password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
 
     class Meta:
         model = AppUser
@@ -168,8 +168,15 @@ class AppUserSerializer(serializers.ModelSerializer):
             'updated_at': {'read_only': True},
         }
 
-    def validate(self, data):
-        return data
+    def validate_email(self, value):
+        if value and AppUser.objects.filter(email=value).exists():
+            raise serializers.ValidationError("A user with this email already exists.")
+        return value
+
+    def validate_phone(self, value):
+        if value and AppUser.objects.filter(phone=value).exists():
+            raise serializers.ValidationError("A user with this phone number already exists.")
+        return value
 
     def create(self, validated_data):
         validated_data['password'] = make_password(validated_data['password'])
@@ -185,32 +192,43 @@ class LoginSerializer(serializers.Serializer):
         phone = data.get('phone')
         password = data.get('password')
     
+        # Validate inputs
         if not email and not phone:
-            raise serializers.ValidationError("Email or Phone is required.")
+            raise ValidationError("Either email or phone number is required.")
+        if not password:
+            raise ValidationError("Password is required.")
 
+        # Find user by email or phone
+        user = None
         if email:
-            user = authenticate(username=email, password=password)
+            try:
+                user = AppUser.objects.get(email=email)
+            except AppUser.DoesNotExist:
+                raise ValidationError("Invalid email/phone or password.")
         elif phone:
             try:
                 user = AppUser.objects.get(phone=phone)
-                user = authenticate(username=user.email, password=password)
             except AppUser.DoesNotExist:
-                raise serializers.ValidationError("User with this phone does not exist.")
-        else:
-            raise serializers.ValidationError("Invalid credentials.")
+                raise ValidationError("Invalid email/phone or password.")
 
-        if user and user.is_active:
-            # Update the last login time
-            user.update_last_login()
-            # Generate or retrieve a token for the user
-            token, created = Token.objects.get_or_create(user=user)
-            return {
-                
-                    'token': token.key,
-                    'user': self.user_to_dict(user)
-                
-            }
-        raise serializers.ValidationError("Invalid credentials.")
+        # Authenticate user
+        if not user or not authenticate(username=email or user.email, password=password):
+            raise ValidationError("Invalid email/phone or password.")
+
+        # Check if user is active
+        if not user.is_active:
+            raise ValidationError("This account is inactive.")
+
+        # Update last login
+        user.update_last_login()
+
+        # Get or create token
+        token, created = Token.objects.get_or_create(user=user)
+
+        return {
+            'token': token.key,
+            'user': self.user_to_dict(user)
+        }
 
     def user_to_dict(self, user):
         return {
