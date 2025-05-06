@@ -334,8 +334,32 @@ class RegisterView(APIView):
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+        # Handle errors
+        errors = serializer.errors
+
+        # Build custom message
+        email_error = 'email' in errors
+        phone_error = 'phone' in errors
+
+        if email_error and phone_error:
+            custom_error = "The email or phone number you've entered is already registered. Please try logging in or use different details to sign up."
+        elif email_error:
+            custom_error = "This email is already taken. Please try a different one or log in."
+        elif phone_error:
+            custom_error = "This phone number is already registered. Please use another or log in."
+        else:
+            custom_error = "Please fix the errors below."
+
+        # Return consistent format
+        return Response({
+            "message": custom_error,
+            "status_code": status.HTTP_400_BAD_REQUEST,
+            "errors": {
+                "non_field_errors": [custom_error]
+            }
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
 class LoginView(APIView):
     permission_classes = [AllowAny]
 
