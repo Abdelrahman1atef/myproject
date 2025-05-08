@@ -1,12 +1,16 @@
 # api/urls.py
 from django.urls import path
+
+from api.utils import health_check
 from . import views
 from .views import ProductListView,ProductListByCompanyView,ProductListByGroupView,ProductDetailView
 from .views import ProductSearchView,CategoryView,LoginView,RegisterView,UserProfileView
 
+
 urlpatterns = [
     #GET
     path('', views.home, name='home'),  # Default route for api
+    path('health/', health_check, name='health_check'),
     path('product/allProducts/', ProductListView.as_view(), name='product-list'),  # List all products (alternative URL)
     path('product/<int:product_id>/', ProductDetailView.as_view(), name='product-detail'),  # Get product by ID
     path('productsByCompany_id/<int:company_id>/', ProductListByCompanyView.as_view(), name='product-list-by-company'),
@@ -19,3 +23,7 @@ urlpatterns = [
     path('register/', RegisterView.as_view(), name='register'),
     path('login/', LoginView.as_view(), name='login'),
 ]
+
+
+
+
