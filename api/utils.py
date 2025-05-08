@@ -1,8 +1,12 @@
 from rest_framework.views import exception_handler
 from rest_framework.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
+from django.db import connection
+from django.http import JsonResponse, Http404
+
 
 def custom_exception_handler(exc, context):
+
     # Call DRF's default exception handler first
     response = exception_handler(exc, context)
 
@@ -65,3 +69,21 @@ def custom_exception_handler(exc, context):
         response.data = custom_data
 
     return response
+
+def health_check(request):
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            row = cursor.fetchone()
+            if row[0] != 1:
+                raise Exception("Database check failed")
+    except Exception as e:
+        return JsonResponse({
+            'status': 'error',
+            'message': f'Server or DB down: {str(e)}'
+        }, status=503)
+
+    return JsonResponse({
+        'status': 'ok',
+        'message': 'Server and DB are running'
+    })
