@@ -4,6 +4,7 @@ from django.contrib.auth.base_user import BaseUserManager
 from django.utils.translation import gettext_lazy as _
 from rest_framework.authtoken.models import Token
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 
 class ProductGroup(models.Model):
     group_id = models.AutoField(primary_key=True)
@@ -11,6 +12,7 @@ class ProductGroup(models.Model):
     group_name_ar=models.CharField(max_length=255, blank=True, null=True)
     group_name_en=models.CharField(max_length=255, blank=True, null=True)
     class Meta:
+        managed = False
         db_table = 'Product_groups'
 
     def __str__(self):
@@ -22,10 +24,27 @@ class Companys(models.Model):
     co_name_ar = models.CharField(max_length=255, blank=True, null=True)
     co_name_en = models.CharField(max_length=255, blank=True, null=True)
     class Meta:
+        managed = False
         db_table = 'Companys'
     def __str__(self):
         return self.co_name_en
-    
+
+class ProductDescription(models.Model):
+    pd_id = models.AutoField(primary_key=True)  # Auto-increment ID
+    pd_code = models.CharField(max_length=255, blank=True, null=True)  # Product code
+    pd_name_ar = models.TextField(blank=True, null=True)  # Arabic description/name
+    pd_name_en = models.TextField(blank=True, null=True)  # English description/name
+    deleted = models.BooleanField(default=False)  # Soft delete flag
+    insert_date = models.DateTimeField(blank=True, null=True)  # Insert timestamp
+    insert_uid = models.CharField(max_length=255, blank=True, null=True)  # User who inserted
+
+    class Meta:
+        db_table = 'Product_description'  # Exact name in DB
+        managed = False  # Don't let Django manage the table (no migrations)
+
+    def __str__(self):
+        return f"{self.pd_code} - {self.pd_name_en or self.pd_name_ar}"    
+
 class ProductAmount(models.Model):
     counter_id = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Add this field
     product_id = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)
@@ -35,6 +54,7 @@ class ProductAmount(models.Model):
     amount = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Stock quantity
 
     class Meta:
+        managed = False
         db_table = 'Product_Amount'
         constraints = [
             models.UniqueConstraint(fields=['product_id', 'store_id', 'counter_id'], name='unique_product_amount')
@@ -47,6 +67,7 @@ class ProductUnit(models.Model):
     unit_name_ar = models.CharField(max_length=255, blank=True, null=True)
     unit_name_en = models.CharField(max_length=255, blank=True, null=True)
     class Meta:
+        managed = False
         db_table = 'Product_Unit'
     def __str__(self):
         return self.unit_name_en
@@ -78,6 +99,7 @@ class Product(models.Model):
     product_minus = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Minus value
     #############################
     class Meta:
+        managed = False
         db_table = 'Products'  # Specify the exact table name
 
     def __str__(self):
@@ -87,6 +109,7 @@ class ProductCategories(models.Model):
     category_id = models.AutoField(primary_key=True)
     category_name_ar = models.CharField(max_length=255, blank=True, null=True)
     class Meta:
+        managed = False
         db_table = 'Product_Categories'
     def __str__(self):
         return self.category_name_ar
@@ -96,6 +119,7 @@ class ProductImages(models.Model):
     product_id = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)
     image_url = models.URLField(max_length=300, blank=True, null=True)
     class Meta:
+        managed = False
         db_table = 'Product_Images'
     def __str__(self):
         return self.image_url
@@ -169,6 +193,7 @@ class AppUser(AbstractBaseUser):
     REQUIRED_FIELDS = ['phone']
 
     class Meta:
+        managed = False
         db_table = 'app_user'
 
     def __str__(self):
@@ -176,102 +201,76 @@ class AppUser(AbstractBaseUser):
     def update_last_login(self):
         self.last_login = timezone.now()
         self.save(update_fields=['last_login'])
-#######################################################################
-# class SalesHeader(models.Model):
-#     sales_id = models.AutoField(primary_key=True)
-#     store_id = models.IntegerField(blank=True, null=True)  # Updated from DecimalField to IntegerField
-#     customer_id = models.IntegerField(blank=True, null=True)  # Updated from DecimalField to IntegerField
-#     class_type = models.CharField(max_length=1, db_column='class', blank=True, null=True)  # Map to 'class' column
-#     product_number = models.IntegerField(blank=True, null=True)  # Number of products in the sale
-#     bill_money_befor = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Bill before discount
-#     total_bill = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Total bill
-#     total_after_disc = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Total after discount
-#     total_bill_net = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Net total bill
-#     total_disc_per = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Discount percentage
-#     total_disc_money = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Discount amount
-#     total_product_disc = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Product discount
-#     total_product_disc = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Product discount percentage
-#     cashier_id = models.CharField(max_length=255, blank=True, null=True)  # Cashier ID
-#     notes = models.TextField(blank=True, null=True)  # Notes
-#     bill_other_expenses = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Other expenses
-#     bill_cash = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Cash received
-#     gf_id = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Financial transaction ID
-#     compu_name = models.CharField(max_length=255, blank=True, null=True)  # Computer name
-#     cashier_disk_id = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Cashier disk ID
-#     insert_uid = models.CharField(max_length=255, blank=True, null=True)  # Insert user ID
-#     sale_class = models.IntegerField(blank=True, null=True)  # Sale class (e.g., 0 for normal sale)
-#     money_change = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Change given
-#     network_money = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Network money
-#     network_id = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Network ID
 
-#     class Meta:
-#         db_table = 'Sales_header'
+class DeviceToken(models.Model):
+    user = models.ForeignKey(AppUser, on_delete=models.CASCADE)
+    token = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
 
-#     def __str__(self):
-#         return f"Sale #{self.sales_id}"
+class OrderStatus(models.TextChoices):
+    PENDING = 'pending', 'Pending'
+    PROCESSING = 'processing', 'Processing'
+    SHIPPED = 'shipped', 'Shipped'
+    DELIVERED = 'delivered', 'Delivered'
+    CANCELLED = 'cancelled', 'Cancelled'
 
-# class SalesDetails(models.Model):
-#     details_id = models.IntegerField(blank=True, null=True)  # Line item number (not globally unique)
-#     sales = models.ForeignKey(SalesHeader, on_delete=models.CASCADE, related_name="details")  # Relationship with SalesHeader
-#     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="sales_details")  # Relationship with Product
-#     counter_id = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)
-#     exp_date = models.DateField(blank=True, null=True)  # Expiry date
-#     amount = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Quantity sold
-#     sale_unit_change = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Unit change
-#     sale_unit = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Sale unit
-#     sell_price = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Sell price
-#     buy_price = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Buy price
-#     disc_money = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Discount amount
-#     disc_per = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Discount percentage
-#     total_sell = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Total sell price
-#     back = models.BooleanField(default=False)  # Indicates if the item was returned
-#     back_amount = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Return amount
-#     back_unit_change = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Return unit change
-#     back_price = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Return price
-#     back_unit = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Return unit
-#     back_gf_id = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Return financial transaction ID
+class App_Order(models.Model):
+    user = models.ForeignKey(AppUser, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    total_price = models.DecimalField(max_digits=18, decimal_places=2, default=0)
+    status = models.CharField(max_length=50,choices=OrderStatus.choices, default='pending')  # e.g., 'pending', 'completed', 'canceled'
+    
+    def change_status(self, new_status):
+        allowed_transitions = {
+            OrderStatus.PENDING: [OrderStatus.PROCESSING, OrderStatus.CANCELLED],
+            OrderStatus.PROCESSING: [OrderStatus.SHIPPED, OrderStatus.CANCELLED],
+            OrderStatus.SHIPPED: [OrderStatus.DELIVERED],
+            OrderStatus.DELIVERED: [],
+            OrderStatus.CANCELLED: [],
+        }
 
-#     class Meta:
-#         db_table = 'Sales_details'
-#         unique_together = ('sales', 'details_id')  # Ensure uniqueness of (sales_id, details_id)
+        if new_status not in allowed_transitions[self.status]:
+            raise ValidationError(f"Cannot change status from {self.status} to {new_status}")
 
-#     def __str__(self):
-#         return f"Detail #{self.details_id} - {self.product}"
+        self.status = new_status
+        self.save()
+    
+    def __str__(self):
+        return f"Order {self.id} by {self.user.email or self.user.phone}"
+    class Meta:
+        managed = False
+        db_table = 'App_Order'
 
-# class GedoFinancial(models.Model):
-#     gf_id = models.AutoField(primary_key=True)
-#     gf_gedo_type = models.IntegerField(blank=True, null=True)  # Type of financial transaction
-#     gf_value = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Transaction value
-#     gf_from_type = models.IntegerField(blank=True, null=True)  # From type
-#     gf_from_id = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # From ID
-#     gf_to_type = models.IntegerField(blank=True, null=True)  # To type
-#     gf_to_id = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # To ID
-#     gf_notes = models.CharField(max_length=255, blank=True, null=True)  # Notes
-#     gf_computer = models.CharField(max_length=255, blank=True, null=True)  # Computer name
-#     gf_actual_cashier = models.CharField(max_length=255, blank=True, null=True)  # Actual cashier
-#     gf_form_type = models.IntegerField(blank=True, null=True)  # Form type
-#     insert_uid = models.CharField(max_length=255, blank=True, null=True)  # Insert user ID
-#     insert_date = models.DateTimeField(auto_now_add=True)  # Insert date
+class App_OrderItem(models.Model):
+    order = models.ForeignKey(App_Order, on_delete=models.CASCADE, related_name='items')
+    product_id = models.DecimalField(max_digits=18, decimal_places=2)
 
-#     class Meta:
-#         db_table = 'Gedo_Financial'
+    # Product snapshot
+    product_name_en = models.CharField(max_length=255)
+    product_name_ar = models.CharField(max_length=255, null=True, blank=True)
 
-#     def __str__(self):
-#         return f"Financial #{self.gf_id}"
+    # Price fields
+    sell_price = models.DecimalField(max_digits=18, decimal_places=2)  # Original price per main unit (e.g., box)
+    unit_price = models.DecimalField(max_digits=18, decimal_places=2)  # Price based on selected unit
 
-# class CashDepots(models.Model):
-#     cash_depot_code = models.CharField(max_length=255, blank=True, null=True)
-#     cash_depot_name_ar = models.CharField(max_length=255, blank=True, null=True)
-#     cash_depot_name_en = models.CharField(max_length=255, blank=True, null=True)
-#     cash_depot_class = models.CharField(max_length=255, blank=True, null=True)
-#     cash_depot_current_money = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)  # Current cash balance
-#     update_uid = models.CharField(max_length=255, blank=True, null=True)  # Update user ID
-#     update_date = models.DateTimeField(auto_now=True)  # Last updated date
+    unit_type = models.CharField(max_length=255)  # e.g., 'Box', 'Strip'
+    quantity = models.PositiveIntegerField(default=1)
+    item_total = models.DecimalField(max_digits=18, decimal_places=2)
 
-#     class Meta:
-#         db_table = 'Cash_depots'
+    def save(self, *args, **kwargs):
+        self.item_total = self.quantity * self.unit_price
+        super().save(*args, **kwargs)
 
-#     def __str__(self):
-#         return self.cash_depot_name_en
+        # Update order total
+        order = self.order
+        order.total_price = sum(item.item_total for item in order.items.all())
+        order.save()
+
+    def __str__(self):
+        return f"{self.quantity} x {self.product_name_en}"
+
+    class Meta:
+        managed = False
+        db_table = 'App_OrderItem'
 
 

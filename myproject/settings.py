@@ -48,7 +48,7 @@ INSTALLED_APPS = [
     'api',
     'debug_toolbar',
     'django.contrib.sites',
-
+    'channels',
 ]
 INSTALLED_APPS += [
     'allauth',
@@ -61,16 +61,27 @@ INSTALLED_APPS += [
 REST_FRAMEWORK = {
     'EXCEPTION_HANDLER': 'api.utils.custom_exception_handler',
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.TokenAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
 }
-
+ASGI_APPLICATION = 'myproject.asgi.application'
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [("127.0.0.1", 6379)],
+            "symmetric_encryption_keys": [b"your_secret_key_here"],
+        },
+    },
+}
 CORS_ALLOW_ALL_ORIGINS = True  # Allow requests from any origin (use with caution in production)
 CORS_ALLOWED_ORIGINS = [
     'http://127.0.0.1:5500',  # Frontend URL
+    'https://locust-eminent-urchin.ngrok-free.app'
 ]
 CSRF_TRUSTED_ORIGINS = [
     'https://locust-eminent-urchin.ngrok-free.app',
