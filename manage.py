@@ -3,9 +3,9 @@
 import os
 import sys
 from threading import Thread
-from ngrok_scripts.start_ngrok import start_ngrok
+from ngrok_scripts.start_ngrok import start_ngrok  # Import the ngrok function
 
-if __name__ == "__main__":
+def main():
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "myproject.settings")
 
     # Start ngrok in a separate thread, but prevent duplicate runs with autoreload
@@ -24,6 +24,9 @@ if __name__ == "__main__":
         ) from exc
     execute_from_command_line(sys.argv)
 
+if __name__ == "__main__":
+    main()
+# 
 # def main():
 #     """Run administrative tasks."""
 #     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'myproject.settings')

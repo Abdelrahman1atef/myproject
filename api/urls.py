@@ -4,8 +4,8 @@ from django.urls import path
 from api.utils import health_check
 from . import views
 from .views import ProductListView,ProductListByCompanyView,ProductListByGroupView,ProductDetailView
-from .views import ProductSearchView,CategoryView,LoginView,RegisterView,UserProfileView
-
+from .views import ProductSearchView,CategoryView,LoginView,RegisterView,UserProfileView,CreateOrderView
+from .views import DeviceTokenView,AdminOrderListView,OrderStatusUpdateAPIView, CustomerOrderListView
 
 urlpatterns = [
     #GET
@@ -18,10 +18,16 @@ urlpatterns = [
     path('categories/', CategoryView.as_view(), name='category-list'),
     path('products/search/', ProductSearchView.as_view(), name='product-search'),
     path('me/', UserProfileView.as_view(), name='user-profile'),
+    path('admin/orders/', AdminOrderListView.as_view(), name='admin-order-list'),
+    path('customer/orders/', CustomerOrderListView.as_view(), name='customer-orders'),
     # Post
-    # path('create-sale/', CreateSaleView.as_view(), name='create-sale'),
     path('register/', RegisterView.as_view(), name='register'),
     path('login/', LoginView.as_view(), name='login'),
+    path('create-order/', CreateOrderView.as_view(), name='create_order'),
+    path('save-device-token/', DeviceTokenView.as_view(), name='save-device-token'),
+
+    # Patch
+    path('orders/<int:pk>/status/', OrderStatusUpdateAPIView.as_view(), name='order-status-update'),
 ]
 
 
