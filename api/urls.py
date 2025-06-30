@@ -27,7 +27,7 @@ urlpatterns = [
     path('save-device-token/', DeviceTokenView.as_view(), name='save-device-token'),
 
     # Patch
-    path('orders/<int:pk>/status/', OrderStatusUpdateAPIView.as_view(), name='order-status-update'),
+    path('admin/orders/status/<int:pk>/', OrderStatusUpdateAPIView.as_view(), name='order-status-update'),
 ]
 
 
