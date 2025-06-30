@@ -89,12 +89,10 @@ class ProductListView(APIView):
 
         # Generate a unique cache key for this page
         cache_key = f'product_list_page_{page_number}'
-        # print("Cache key:", cache_key)  # Debugging
 
         # Check if the paginated data is cached
         cached_data = cache.get(cache_key)
         if cached_data:
-            # print("Serving from cache:", cached_data)  # Debugging
             return Response(cached_data)
 
         # Define the raw SQL query
@@ -110,7 +108,6 @@ class ProductListView(APIView):
 				where pu.unit_id=p.product_unit1
 				)as product_unit1,
                 p.sell_price,
-
 				(
 				select unit_name_ar
 				from Product_units pu
@@ -125,36 +122,20 @@ class ProductListView(APIView):
 				)as product_unit3,
 				p.product_unit1_3,
 				p.unit3_sell_price,
-				ISNULL(
+                ISNULL(
                     (SELECT CAST(SUM(pa.amount) AS INT) 
                      FROM Product_Amount pa
                      WHERE pa.product_id = p.product_id), 
                     0
                 ) AS amount,
-                p.product_image_url,
                 (
                 select pd.pd_name_ar
                 )as product_description,
                 (
-                    SELECT 
-                        c.company_id,
-                        c.co_name_en,
-                        c.co_name_ar
-                    FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-                ) AS company,
-                (
-                    SELECT 
-                        pg.group_id,
-                        pg.group_name_en,
-                        pg.group_name_ar
-                    FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-                ) AS product_group,
-                (
-                    SELECT STRING_AGG(pi.image_url, ', ') -- Concatenate image URLs into a single string
+                    SELECT STRING_AGG(pi.image_url, ', ')
                     FROM Product_Images pi
                     WHERE pi.product_id = p.product_id
-                ) AS product_images -- Returns all image URLs as a comma-separated string
-                
+                ) AS product_images
             FROM 
                 Products p
             LEFT JOIN 
@@ -168,24 +149,20 @@ class ProductListView(APIView):
         # Execute the raw SQL query
         with connection.cursor() as cursor:
             cursor.execute(query)
-            columns = [col[0] for col in cursor.description]  # Get column names
+            columns = [col[0] for col in cursor.description]
             rows = cursor.fetchall()
 
         # Convert the rows into a list of dictionaries
         products = []
         for row in rows:
             product = dict(zip(columns, row))
-            # Parse the nested JSON fields
-            product['company'] = json.loads(product['company'])
-            product['product_group'] = json.loads(product['product_group'])
             # Split the product_images string into a list of URLs
             if product['product_images']:
                 product['product_images'] = product['product_images'].split(', ')
             else:
-                product['product_images'] = []  # Empty list if no images exist
+                product['product_images'] = []
             
             products.append(product)
-        # print("Raw data from database:", products)  # Debugging
 
         # Set up pagination
         paginator = PageNumberPagination()
@@ -199,7 +176,6 @@ class ProductListView(APIView):
             "previous": paginator.get_previous_link(),
             "results": result_page,
         }
-        # print("Response data before caching:", response_data)  # Debugging
 
         # Cache the entire response
         cache.set(cache_key, response_data, timeout=60 * 15)  # Cache for 15 minutes
@@ -217,9 +193,51 @@ class ProductListByCompanyView(APIView):
         if cached_data:
             return Response(cached_data)
         query = f"""
-            {query_head}
-    WHERE p.company_id = {company_id}
-"""
+            SELECT 
+                p.product_id,
+                p.product_code,
+                p.product_name_ar,
+                p.product_name_en,
+                (
+				select unit_name_ar
+				from Product_units pu
+				where pu.unit_id=p.product_unit1
+				)as product_unit1,
+                p.sell_price,
+				(
+				select unit_name_ar
+				from Product_units pu
+				where pu.unit_id=p.product_unit2
+				)as product_unit2,
+				p.product_unit1_2,
+				p.unit2_sell_price,
+				(
+				select unit_name_ar
+				from Product_units pu
+				where pu.unit_id=p.product_unit3
+				)as product_unit3,
+				p.product_unit1_3,
+				p.unit3_sell_price,
+                ISNULL(
+                    (SELECT CAST(SUM(pa.amount) AS INT) 
+                     FROM Product_Amount pa
+                     WHERE pa.product_id = p.product_id), 
+                    0
+                ) AS amount,
+                (
+                select pd.pd_name_ar
+                )as product_description,
+                (
+                    SELECT STRING_AGG(pi.image_url, ', ')
+                    FROM Product_Images pi
+                    WHERE pi.product_id = p.product_id
+                ) AS product_images
+            FROM Products p
+            LEFT JOIN Product_groups pg ON p.group_id = pg.group_id
+            LEFT JOIN Companys c ON p.company_id = c.company_id
+            LEFT JOIN Product_description pd on pd.pd_id=p.pd_id
+            WHERE p.company_id = {company_id}
+        """
 
         with connection.cursor() as cursor:
             cursor.execute(query)
@@ -229,13 +247,10 @@ class ProductListByCompanyView(APIView):
         products = []
         for row in rows:
             product = dict(zip(columns, row))
-            product['company'] = json.loads(product['company']) if product['company'] else None
-            product['product_group'] = json.loads(product['product_group']) if product['product_group'] else None
-            # Split the product_images string into a list of URLs
             if product['product_images']:
                 product['product_images'] = product['product_images'].split(', ')
             else:
-                product['product_images'] = []  # Empty list if no images exist
+                product['product_images'] = []
             
             products.append(product)
 
@@ -264,7 +279,49 @@ class ProductListByGroupView(APIView):
             return Response(cached_data)
 
         query = f"""
-            {query_head}
+            SELECT 
+                p.product_id,
+                p.product_code,
+                p.product_name_ar,
+                p.product_name_en,
+                (
+				select unit_name_ar
+				from Product_units pu
+				where pu.unit_id=p.product_unit1
+				)as product_unit1,
+                p.sell_price,
+				(
+				select unit_name_ar
+				from Product_units pu
+				where pu.unit_id=p.product_unit2
+				)as product_unit2,
+				p.product_unit1_2,
+				p.unit2_sell_price,
+				(
+				select unit_name_ar
+				from Product_units pu
+				where pu.unit_id=p.product_unit3
+				)as product_unit3,
+				p.product_unit1_3,
+				p.unit3_sell_price,
+                ISNULL(
+                    (SELECT CAST(SUM(pa.amount) AS INT) 
+                     FROM Product_Amount pa
+                     WHERE pa.product_id = p.product_id), 
+                    0
+                ) AS amount,
+                (
+                select pd.pd_name_ar
+                )as product_description,
+                (
+                    SELECT STRING_AGG(pi.image_url, ', ')
+                    FROM Product_Images pi
+                    WHERE pi.product_id = p.product_id
+                ) AS product_images
+            FROM Products p
+            LEFT JOIN Product_groups pg ON p.group_id = pg.group_id
+            LEFT JOIN Companys c ON p.company_id = c.company_id
+            LEFT JOIN Product_description pd on pd.pd_id=p.pd_id
             WHERE pg.category_id = {group_id}
         """
 
@@ -276,13 +333,10 @@ class ProductListByGroupView(APIView):
         products = []
         for row in rows:
             product = dict(zip(columns, row))
-            product['company'] = json.loads(product['company']) if product['company'] else None
-            product['product_group'] = json.loads(product['product_group']) if product['product_group'] else None
-            # Split the product_images string into a list of URLs
             if product['product_images']:
                 product['product_images'] = product['product_images'].split(', ')
             else:
-                product['product_images'] = []  # Empty list if no images exist
+                product['product_images'] = []
             
             products.append(product)
 

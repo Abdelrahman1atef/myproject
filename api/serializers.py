@@ -7,6 +7,7 @@ from django.contrib.auth.hashers import make_password
 from django.contrib.auth import authenticate
 from rest_framework.authtoken.models import Token
 from django.core.exceptions import ValidationError
+from django.db import connection
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -345,6 +346,8 @@ class OrderCreateSerializer(serializers.Serializer):
 
 class OrderItemListSerializer(serializers.ModelSerializer):
     product_images = serializers.SerializerMethodField()
+    unit_type = serializers.SerializerMethodField()
+    
     class Meta:
         model = App_OrderItem
         fields = [
@@ -363,6 +366,20 @@ class OrderItemListSerializer(serializers.ModelSerializer):
         """Fetch all images associated with the product."""
         images = ProductImages.objects.filter(product_id=obj.product_id)
         return [img.image_url for img in images]
+
+    def get_unit_type(self, obj):
+        """Get unit name from Product_units table."""
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT unit_name_ar 
+                    FROM Product_units 
+                    WHERE unit_id = %s
+                """, [obj.unit_type])
+                result = cursor.fetchone()
+                return result[0] if result else obj.unit_type
+        except Exception:
+            return obj.unit_type
 
 class OrderListSerializer(serializers.ModelSerializer):
     items = OrderItemListSerializer(many=True, read_only=True)
