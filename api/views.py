@@ -1012,12 +1012,12 @@ class DashboardView(APIView):
             .order_by('-total_sold')[:10]
         )
         
-        # Products with low stock (amount < 10)
-        low_stock_products = []
+        # Products with zero stock (out of stock) - Limited to top 20 most critical
+        out_of_stock_products = []
         try:
             with connection.cursor() as cursor:
                 cursor.execute("""
-                    SELECT 
+                    SELECT TOP 20
                         p.product_id,
                         p.product_name_en,
                         p.product_name_ar,
@@ -1025,14 +1025,33 @@ class DashboardView(APIView):
                     FROM Products p
                     LEFT JOIN Product_Amount pa ON p.product_id = pa.product_id
                     GROUP BY p.product_id, p.product_name_en, p.product_name_ar
-                    HAVING ISNULL(SUM(pa.amount), 0) < 10
-                    ORDER BY total_stock ASC
+                    HAVING ISNULL(SUM(pa.amount), 0) = 0
+                    ORDER BY p.product_name_en ASC
                 """)
                 columns = [col[0] for col in cursor.description]
                 for row in cursor.fetchall():
-                    low_stock_products.append(dict(zip(columns, row)))
+                    out_of_stock_products.append(dict(zip(columns, row)))
         except Exception as e:
-            print(f"Error getting low stock products: {e}")
+            print(f"Error getting out of stock products: {e}")
+        
+        # Get total count of out of stock products (without fetching all data)
+        total_out_of_stock_count = 0
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT COUNT(*) as total_count
+                    FROM (
+                        SELECT p.product_id
+                        FROM Products p
+                        LEFT JOIN Product_Amount pa ON p.product_id = pa.product_id
+                        GROUP BY p.product_id
+                        HAVING ISNULL(SUM(pa.amount), 0) = 0
+                    ) as out_of_stock
+                """)
+                result = cursor.fetchone()
+                total_out_of_stock_count = result[0] if result else 0
+        except Exception as e:
+            print(f"Error getting out of stock count: {e}")
         
         # 5. Recent Activity
         recent_orders_list = App_Order.objects.select_related('user').order_by('-created_at')[:10]
@@ -1087,54 +1106,57 @@ class DashboardView(APIView):
         
         # Build dashboard data
         dashboard_data = {
-            # Sales Overview
-            'sales_overview': {
-                'total_orders': total_orders,
-                'total_revenue': round(total_revenue, 2),
-                'recent_orders_count': recent_orders_count,
-                'recent_revenue': round(recent_revenue, 2),
-                'avg_order_value': round(avg_order_value, 2),
-            },
-            
-            # Order Status
-            'order_status_distribution': order_status_counts,
-            
-            # User Statistics
-            'user_statistics': {
-                'total_users': total_users,
-                'active_users': active_users,
-                'new_users_this_month': new_users_this_month,
-                'user_growth_rate': round((new_users_this_month / total_users * 100), 2) if total_users > 0 else 0,
-            },
-            
-            # Product Performance
+            'dashboard_result': {
+                # Sales Overview
+                'sales_overview': {
+                    'total_orders': total_orders,
+                    'total_revenue': round(total_revenue, 2),
+                    'recent_orders_count': recent_orders_count,
+                    'recent_revenue': round(recent_revenue, 2),
+                    'avg_order_value': round(avg_order_value, 2),
+                },
+                
+                # Order Status
+                'order_status_distribution': order_status_counts,
+                
+                # User Statistics
+                'user_statistics': {
+                    'total_users': total_users,
+                    'active_users': active_users,
+                    'new_users_this_month': new_users_this_month,
+                    'user_growth_rate': round((new_users_this_month / total_users * 100), 2) if total_users > 0 else 0,
+                },
+                
+                            # Product Performance
             'product_performance': {
                 'top_selling_products': list(top_products),
-                'low_stock_products': low_stock_products,
-                'low_stock_count': len(low_stock_products),
+                'out_of_stock_products': out_of_stock_products,
+                'out_of_stock_count': total_out_of_stock_count,
+                'out_of_stock_products_shown': len(out_of_stock_products),
             },
-            
-            # Recent Activity
-            'recent_activity': {
-                'recent_orders': recent_orders_data,
-            },
-            
-            # Trends
-            'revenue_trends': {
-                'daily_revenue': list(reversed(daily_revenue)),  # Reverse to show oldest first
-            },
-            
-            # Payment & Delivery
-            'payment_method_distribution': payment_method_counts,
-            'delivery_method_distribution': delivery_method_counts,
-            
-            # Quick Stats
+                
+                # Recent Activity
+                'recent_activity': {
+                    'recent_orders': recent_orders_data,
+                },
+                
+                # Trends
+                'revenue_trends': {
+                    'daily_revenue': list(reversed(daily_revenue)),  # Reverse to show oldest first
+                },
+                
+                # Payment & Delivery
+                'payment_method_distribution': payment_method_counts,
+                'delivery_method_distribution': delivery_method_counts,
+                
+                            # Quick Stats
             'quick_stats': {
                 'pending_orders': order_status_counts.get('pending', 0),
                 'delivered_orders': order_status_counts.get('delivered', 0),
                 'cancelled_orders': order_status_counts.get('cancelled', 0),
                 'total_products': Product.objects.count(),
-                'products_in_stock': len([p for p in low_stock_products if p.get('total_stock', 0) > 0]),
+                'out_of_stock_products': total_out_of_stock_count,  # Products with zero stock
+            }
             }
         }
         
