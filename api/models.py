@@ -105,6 +105,10 @@ class Product(models.Model):
     def __str__(self):
         return self.product_name_en
 
+    @property
+    def id(self):
+        return self.product_id
+
 class ProductCategories(models.Model):
     category_id = models.AutoField(primary_key=True)
     category_name_ar = models.CharField(max_length=255, blank=True, null=True)
@@ -209,7 +213,7 @@ class DeviceToken(models.Model):
 
 class OrderStatus(models.TextChoices):
     PENDING = 'pending', 'Pending'
-    PROCESSING = 'processing', 'Processing'
+    PREPARING = 'preparing', 'Preparing'
     SHIPPED = 'shipped', 'Shipped'
     DELIVERED = 'delivered', 'Delivered'
     CANCELLED = 'cancelled', 'Cancelled'
@@ -218,18 +222,41 @@ class App_Order(models.Model):
     user = models.ForeignKey(AppUser, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     total_price = models.DecimalField(max_digits=18, decimal_places=2, default=0)
-    status = models.CharField(max_length=50,choices=OrderStatus.choices, default='pending')  # e.g., 'pending', 'completed', 'canceled'
+    status = models.CharField(max_length=50,choices=OrderStatus.choices, default=OrderStatus.PENDING)
+    # New fields for location and payment method
+    address_name = models.CharField(max_length=255, blank=True, null=True)  # Name/label for the address
+    address_street = models.CharField(max_length=500, blank=True, null=True)  # Street address
+    latitude = models.FloatField(blank=True, null=True)
+    longitude = models.FloatField(blank=True, null=True)
+    PAYMENT_METHOD_CHOICES = [
+        ('cash_on_delivery', 'الدفع عند الاستلام'),
+        ('debit_credit_card', 'بطاقة الخصم/الائتمان'),
+        ('debit_credit_card_on_delivery', 'بطاقة الخصم/الائتمان عند الاستلام'),
+        # ('cash', 'Cash'),
+        # ('card', 'Card'),
+        # ('other', 'Other'),
+    ]
+    payment_method = models.CharField(max_length=30, choices=PAYMENT_METHOD_CHOICES, blank=True, null=True)
+    # New delivery method fields
+    DELIVERY_METHOD_CHOICES = [
+        ('home_delivery', 'Home Delivery'),
+        ('pharmacy_pickup', 'Pharmacy Pickup'),
+    ]
+    delivery_method = models.CharField(max_length=20, choices=DELIVERY_METHOD_CHOICES, blank=True, null=True)
+    is_home_delivery = models.BooleanField(default=False)
+    call_request_enabled = models.BooleanField(default=False)
+    promo_code = models.CharField(max_length=50, blank=True, null=True)
     
     def change_status(self, new_status):
         allowed_transitions = {
-            OrderStatus.PENDING: [OrderStatus.PROCESSING, OrderStatus.CANCELLED],
-            OrderStatus.PROCESSING: [OrderStatus.SHIPPED, OrderStatus.CANCELLED],
+            OrderStatus.PENDING: [OrderStatus.PREPARING, OrderStatus.CANCELLED],
+            OrderStatus.PREPARING: [OrderStatus.SHIPPED, OrderStatus.CANCELLED],
             OrderStatus.SHIPPED: [OrderStatus.DELIVERED],
             OrderStatus.DELIVERED: [],
             OrderStatus.CANCELLED: [],
         }
 
-        if new_status not in allowed_transitions[self.status]:
+        if new_status not in allowed_transitions.get(self.status, []):
             raise ValidationError(f"Cannot change status from {self.status} to {new_status}")
 
         self.status = new_status

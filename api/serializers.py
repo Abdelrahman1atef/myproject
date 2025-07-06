@@ -36,9 +36,11 @@ class ProductSerializer(serializers.ModelSerializer):
      product_images = serializers.SerializerMethodField()
      stock_amount = serializers.SerializerMethodField()
      product_description = serializers.SerializerMethodField()
+     id = serializers.SerializerMethodField()
      class Meta:
         model = Product
         fields = [
+            'id',
             'product_id',
             'product_code',
             'product_name_ar',
@@ -56,6 +58,8 @@ class ProductSerializer(serializers.ModelSerializer):
             'product_group',
             'product_images',
             ]
+     def get_id(self, obj):
+        return obj.product_id
      def get_product_group(self, obj):
         # Fetch the ProductGroup using group_id
         if obj.group_id:
@@ -285,6 +289,19 @@ class OrderItemSerializer(serializers.Serializer):
 class OrderCreateSerializer(serializers.Serializer):
     user_id = serializers.IntegerField(required=True)
     products = serializers.ListField(child=serializers.DictField())  # More flexible than OrderItemSerializer
+    address_name = serializers.CharField(required=False, allow_blank=True, allow_null=True, max_length=255)
+    address_street = serializers.CharField(required=False, allow_blank=True, allow_null=True, max_length=500)
+    latitude = serializers.FloatField(required=False, allow_null=True)
+    longitude = serializers.FloatField(required=False, allow_null=True)
+    payment_method = serializers.ChoiceField(required=False, allow_null=True, choices=[
+        ('cash_on_delivery', 'الدفع عند الاستلام'),
+        ('debit_credit_card', 'بطاقة الخصم/الائتمان'),
+        ('debit_credit_card_on_delivery', 'بطاقة الخصم/الائتمان عند الاستلام'),
+    ])
+    delivery_method = serializers.ChoiceField(required=False, allow_null=True, choices=[('home_delivery', 'Home Delivery'), ('pharmacy_pickup', 'Pharmacy Pickup')])
+    is_home_delivery = serializers.BooleanField(required=False, default=False)
+    call_request_enabled = serializers.BooleanField(required=False, default=False)
+    promo_code = serializers.CharField(required=False, allow_blank=True, allow_null=True, max_length=50)
 
     def validate_user_id(self, value):
         request = self.context.get('request')
@@ -302,8 +319,28 @@ class OrderCreateSerializer(serializers.Serializer):
     def create(self, validated_data):
         user = self.context['request'].user
         products_data = validated_data['products']
+        address_name = validated_data.get('address_name')
+        address_street = validated_data.get('address_street')
+        latitude = validated_data.get('latitude')
+        longitude = validated_data.get('longitude')
+        payment_method = validated_data.get('payment_method')
+        delivery_method = validated_data.get('delivery_method')
+        is_home_delivery = validated_data.get('is_home_delivery', False)
+        call_request_enabled = validated_data.get('call_request_enabled', False)
+        promo_code = validated_data.get('promo_code')
         
-        order = App_Order.objects.create(user=user)
+        order = App_Order.objects.create(
+            user=user,
+            address_name=address_name,
+            address_street=address_street,
+            latitude=latitude,
+            longitude=longitude,
+            payment_method=payment_method,
+            delivery_method=delivery_method,
+            is_home_delivery=is_home_delivery,
+            call_request_enabled=call_request_enabled,
+            promo_code=promo_code
+        )
         total_order_price = Decimal('0')
 
         for product_data in products_data:
@@ -347,6 +384,7 @@ class OrderCreateSerializer(serializers.Serializer):
 class OrderItemListSerializer(serializers.ModelSerializer):
     product_images = serializers.SerializerMethodField()
     unit_type = serializers.SerializerMethodField()
+    product_id = serializers.SerializerMethodField()
     
     class Meta:
         model = App_OrderItem
@@ -363,12 +401,10 @@ class OrderItemListSerializer(serializers.ModelSerializer):
         ]
 
     def get_product_images(self, obj):
-        """Fetch all images associated with the product."""
         images = ProductImages.objects.filter(product_id=obj.product_id)
         return [img.image_url for img in images]
 
     def get_unit_type(self, obj):
-        """Get unit name from Product_units table."""
         try:
             with connection.cursor() as cursor:
                 cursor.execute("""
@@ -381,12 +417,28 @@ class OrderItemListSerializer(serializers.ModelSerializer):
         except Exception:
             return obj.unit_type
 
+    def get_product_id(self, obj):
+        try:
+            return int(obj.product_id)
+        except Exception:
+            return obj.product_id
+
 class OrderListSerializer(serializers.ModelSerializer):
     items = OrderItemListSerializer(many=True, read_only=True)
     first_name = serializers.SerializerMethodField()
     last_name = serializers.SerializerMethodField()
     user_email = serializers.SerializerMethodField()
     user_phone = serializers.SerializerMethodField()
+    total_price = serializers.SerializerMethodField()
+    address_name = serializers.CharField(read_only=True)
+    address_street = serializers.CharField(read_only=True)
+    latitude = serializers.FloatField(read_only=True)
+    longitude = serializers.FloatField(read_only=True)
+    payment_method = serializers.CharField(read_only=True, max_length=30)
+    delivery_method = serializers.CharField(read_only=True)
+    is_home_delivery = serializers.BooleanField(read_only=True)
+    call_request_enabled = serializers.BooleanField(read_only=True)
+    promo_code = serializers.CharField(read_only=True)
 
     class Meta:
         model = App_Order
@@ -401,6 +453,15 @@ class OrderListSerializer(serializers.ModelSerializer):
             'total_price',
             'status',
             'items',
+            'address_name',
+            'address_street',
+            'latitude',
+            'longitude',
+            'payment_method',
+            'delivery_method',
+            'is_home_delivery',
+            'call_request_enabled',
+            'promo_code',
         ]
     def get_first_name(self, obj):
         return obj.user.first_name
@@ -414,8 +475,21 @@ class OrderListSerializer(serializers.ModelSerializer):
     def get_user_phone(self, obj):
         return obj.user.phone
 
+    def get_total_price(self, obj):
+        return float(obj.total_price) if obj.total_price is not None else 0.0
+
 class CustomerOrderListSerializer(serializers.ModelSerializer):
     items = OrderItemListSerializer(many=True, read_only=True)
+    total_price = serializers.SerializerMethodField()
+    address_name = serializers.CharField(read_only=True)
+    address_street = serializers.CharField(read_only=True)
+    latitude = serializers.FloatField(read_only=True)
+    longitude = serializers.FloatField(read_only=True)
+    payment_method = serializers.CharField(read_only=True, max_length=30)
+    delivery_method = serializers.CharField(read_only=True)
+    is_home_delivery = serializers.BooleanField(read_only=True)
+    call_request_enabled = serializers.BooleanField(read_only=True)
+    promo_code = serializers.CharField(read_only=True)
     
     class Meta:
         model = App_Order
@@ -425,13 +499,32 @@ class CustomerOrderListSerializer(serializers.ModelSerializer):
             'total_price',
             'status',
             'items',
+            'address_name',
+            'address_street',
+            'latitude',
+            'longitude',
+            'payment_method',
+            'delivery_method',
+            'is_home_delivery',
+            'call_request_enabled',
+            'promo_code',
         ]
         # Removed user-specific fields since customer already knows their own info
+
+    def get_total_price(self, obj):
+        return float(obj.total_price) if obj.total_price is not None else 0.0
 
 class OrderStatusSerializer(serializers.ModelSerializer):
     class Meta:
         model = App_Order
         fields = ['status']
+
+class BestSellerProductSerializer(serializers.Serializer):
+    product_id = serializers.IntegerField()
+    product_name_en = serializers.CharField()
+    product_name_ar = serializers.CharField()
+    sell_price = serializers.DecimalField(max_digits=18, decimal_places=2)
+    total_sold = serializers.IntegerField()
 
 
 

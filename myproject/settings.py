@@ -33,6 +33,9 @@ ALLOWED_HOSTS = ['.ngrok-free.app','127.0.0.1', 'localhost']
 
 AUTH_USER_MODEL = 'api.AppUser'
 
+# Site ID for django.contrib.sites
+SITE_ID = 1
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
