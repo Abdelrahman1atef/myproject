@@ -20,6 +20,11 @@ urlpatterns = [
     path('me/', UserProfileView.as_view(), name='user-profile'),
     path('admin/orders/', AdminOrderListView.as_view(), name='admin-order-list'),
     path('customer/orders/', CustomerOrderListView.as_view(), name='customer-orders'),
+    path('products/best-sellers/', views.BestSellersView.as_view(), name='best-sellers'),
+    path('products/see-our-products/', views.SeeOurProductsView.as_view(), name='see-our-products'),
+    path('admin/users/', views.AllUsersView.as_view(), name='all-users'),
+    path('admin/users/<int:user_id>/', views.UserDetailView.as_view(), name='user-detail'),
+    path('admin/dashboard/', views.DashboardView.as_view(), name='admin-dashboard'),
     # Post
     path('register/', RegisterView.as_view(), name='register'),
     path('login/', LoginView.as_view(), name='login'),
