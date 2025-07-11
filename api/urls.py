@@ -6,6 +6,7 @@ from . import views
 from .views import ProductListView,ProductListByCompanyView,ProductListByGroupView,ProductDetailView
 from .views import ProductSearchView,CategoryView,LoginView,RegisterView,UserProfileView,CreateOrderView
 from .views import DeviceTokenView,AdminOrderListView,OrderStatusUpdateAPIView, CustomerOrderListView
+from .views import DeviceTokenRegisterView
 
 urlpatterns = [
     #GET
@@ -33,6 +34,9 @@ urlpatterns = [
 
     # Patch
     path('admin/orders/status/<int:pk>/', OrderStatusUpdateAPIView.as_view(), name='order-status-update'),
+
+    # New URL pattern for FCM token registration
+    path('device/fcm-token/', DeviceTokenRegisterView.as_view(), name='fcm-token'),
 ]
 
 

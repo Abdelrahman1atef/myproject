@@ -33,9 +33,6 @@ ALLOWED_HOSTS = ['.ngrok-free.app','127.0.0.1', 'localhost']
 
 AUTH_USER_MODEL = 'api.AppUser'
 
-# Site ID for django.contrib.sites
-SITE_ID = 1
-
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -45,20 +42,10 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework.authtoken',
-    'dashboard',
     'drf_yasg',
     'corsheaders',
     'api',
-    'debug_toolbar',
-    'django.contrib.sites',
     'channels',
-]
-INSTALLED_APPS += [
-    'allauth',
-    'allauth.account',
-    'allauth.socialaccount',
-    'allauth.socialaccount.providers.google',
-    'allauth.socialaccount.providers.facebook',
 ]
 
 REST_FRAMEWORK = {
@@ -98,11 +85,6 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'corsheaders.middleware.CorsMiddleware',
-    'debug_toolbar.middleware.DebugToolbarMiddleware',
-    'allauth.account.middleware.AccountMiddleware',  # Add this line
-]
-INTERNAL_IPS = [
-    '127.0.0.1',
 ]
 
 ROOT_URLCONF = 'myproject.urls'
@@ -110,8 +92,7 @@ ROOT_URLCONF = 'myproject.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates',
-                 os.path.join(BASE_DIR, 'ui'),],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -133,25 +114,26 @@ def validate_database_config():
         if setting not in DATABASES['default']:
             raise ImproperlyConfigured(f"Database setting '{setting}' is missing.")
 
-
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
 DATABASES = {
     'default': {
-        'ENGINE': 'mssql',  # SQL Server backend
+        'ENGINE': 'django.db.backends.mysql',  # MySQL backend
         'NAME': 'stock',  # Your database name
-        'USER': 'ManAtef',  # Replace with the SQL Server username
-        'PASSWORD': '3221123',  # Replace with the SQL Server password
-        'HOST': 'MANATEF\MANATEF',  # Your server name with the instance
-        'PORT': '1433',  # Leave empty to use the default port (1433)
+        'USER': 'root',  # MySQL username
+        'PASSWORD': 'Az192.168.1.1.',  # MySQL password
+        'HOST': 'localhost',  # MySQL host (usually localhost)
+        'PORT': '3306',  # MySQL default port
         'OPTIONS': {
-            'driver': 'ODBC Driver 17 for SQL Server',  # ODBC driver
-            # 'trusted_connection': 'yes',  # Enable Windows Authentication
+            'charset': 'utf8mb4',  # Use utf8mb4 for full Unicode support
+            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",  # Strict mode for data integrity
         },
     }
 }
+
 validate_database_config()
+
 # Handle database connection errors
 try:
     from django.db import connection
@@ -209,3 +191,10 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'static')  # This should be a separate fold
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Firebase Cloud Messaging server key (replace with your actual key)
+FCM_SERVER_KEY = 'YOUR_FIREBASE_SERVER_KEY_HERE'
+
+# Firebase Cloud Messaging v1 API settings
+FIREBASE_PROJECT_ID = 'ramzy-pharmacy'  # Your Firebase project ID
+FIREBASE_CREDENTIALS_FILE = os.path.join(BASE_DIR, 'firebase', 'ramzy-pharmacy-firebase-adminsdk-fbsvc-b1451cab80.json')  # Path to your service account JSON

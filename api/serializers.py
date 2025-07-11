@@ -8,6 +8,9 @@ from django.contrib.auth import authenticate
 from rest_framework.authtoken.models import Token
 from django.core.exceptions import ValidationError
 from django.db import connection
+from .utils import send_fcm_notification_v1
+from django.db import transaction
+from django.db.models import Sum
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -328,57 +331,86 @@ class OrderCreateSerializer(serializers.Serializer):
         is_home_delivery = validated_data.get('is_home_delivery', False)
         call_request_enabled = validated_data.get('call_request_enabled', False)
         promo_code = validated_data.get('promo_code')
-        
-        order = App_Order.objects.create(
-            user=user,
-            address_name=address_name,
-            address_street=address_street,
-            latitude=latitude,
-            longitude=longitude,
-            payment_method=payment_method,
-            delivery_method=delivery_method,
-            is_home_delivery=is_home_delivery,
-            call_request_enabled=call_request_enabled,
-            promo_code=promo_code
-        )
-        total_order_price = Decimal('0')
 
-        for product_data in products_data:
-            try:
-                # Get fresh product data from database (don't trust client data)
-                product = Product.objects.get(product_id=product_data['product_id'])
-            except Product.DoesNotExist:
-                raise serializers.ValidationError(f"Product {product_data['product_id']} not found")
-
-            quantity = Decimal(str(product_data['quantity']))
-            
-            # Use server-side calculated price, not client-provided price
-            unit_type = product_data.get('selected_unit', 'product_unit1')
-            if unit_type == 'product_unit2':
-                unit_price = product.unit2_sell_price
-            elif unit_type == 'product_unit3':
-                unit_price = product.unit3_sell_price
-            else:
-                unit_price = product.sell_price
-
-            item_total = unit_price * quantity
-
-            App_OrderItem.objects.create(
-                order=order,
-                product_id=product.product_id,
-                product_name_en=product.product_name_en,  # From DB, not request
-                product_name_ar=product.product_name_ar,    # From DB, not request
-                sell_price=product.sell_price,
-                unit_type=getattr(product, unit_type, 'Unknown'),
-                unit_price=unit_price,
-                quantity=quantity,
-                item_total=item_total
+        with transaction.atomic():
+            order = App_Order.objects.create(
+                user=user,
+                address_name=address_name,
+                address_street=address_street,
+                latitude=latitude,
+                longitude=longitude,
+                payment_method=payment_method,
+                delivery_method=delivery_method,
+                is_home_delivery=is_home_delivery,
+                call_request_enabled=call_request_enabled,
+                promo_code=promo_code
             )
+            total_order_price = Decimal('0')
 
-            total_order_price += item_total
+            # Stock check: gather all product_ids and quantities
+            product_id_qty = {}
+            for product_data in products_data:
+                pid = product_data['product_id']
+                qty = Decimal(str(product_data['quantity']))
+                product_id_qty[pid] = product_id_qty.get(pid, 0) + qty
 
-        order.total_price = total_order_price
-        order.save()
+            # Batch fetch all stock for these products
+            from api.models import ProductAmount
+            stock_totals = ProductAmount.objects.filter(product_id__in=product_id_qty.keys()).values('product_id').annotate(total=Sum('amount'))
+            stock_dict = {str(item['product_id']): Decimal(item['total'] or 0) for item in stock_totals}
+
+            # Check stock for each product
+            for pid, qty in product_id_qty.items():
+                available = stock_dict.get(str(pid), Decimal('0'))
+                if available < qty:
+                    raise serializers.ValidationError(f"Insufficient stock for product {pid}. Requested: {qty}, Available: {available}")
+
+            for product_data in products_data:
+                try:
+                    # Get fresh product data from database (don't trust client data)
+                    product = Product.objects.get(product_id=product_data['product_id'])
+                except Product.DoesNotExist:
+                    raise serializers.ValidationError(f"Product {product_data['product_id']} not found")
+
+                quantity = Decimal(str(product_data['quantity']))
+                # Use server-side calculated price, not client-provided price
+                unit_type = product_data.get('selected_unit', 'product_unit1')
+                if unit_type == 'product_unit2':
+                    unit_price = product.unit2_sell_price
+                elif unit_type == 'product_unit3':
+                    unit_price = product.unit3_sell_price
+                else:
+                    unit_price = product.sell_price
+
+                item_total = unit_price * quantity
+
+                App_OrderItem.objects.create(
+                    order=order,
+                    product_id=product.product_id,
+                    product_name_en=product.product_name_en,  # From DB, not request
+                    product_name_ar=product.product_name_ar,    # From DB, not request
+                    sell_price=product.sell_price,
+                    unit_type=getattr(product, unit_type, 'Unknown'),
+                    unit_price=unit_price,
+                    quantity=quantity,
+                    item_total=item_total
+                )
+
+                total_order_price += item_total
+
+            order.total_price = total_order_price
+            order.save()
+
+            # Notify all admins with device tokens
+            admin_users = AppUser.objects.filter(is_staff=True, is_active=True)
+            admin_tokens = DeviceToken.objects.filter(user__in=admin_users).values_list('token', flat=True)
+            for token in admin_tokens:
+                send_fcm_notification_v1(
+                    token,
+                    title="New Order",
+                    body=f"A new order (ID: {order.id}) has been placed.",
+                    data={"order_id": order.id}
+                )
         return order
 
 class OrderItemListSerializer(serializers.ModelSerializer):

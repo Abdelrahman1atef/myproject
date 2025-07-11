@@ -63,12 +63,12 @@ class ProductAmount(models.Model):
          return f"Product ID: {self.product_id}, Store ID: {self.store_id}, Counter ID: {self.counter_id}"
 
 class ProductUnit(models.Model):
-    unit_id = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)
+    unit_id = models.DecimalField(max_digits=18, decimal_places=2, primary_key=True)
     unit_name_ar = models.CharField(max_length=255, blank=True, null=True)
     unit_name_en = models.CharField(max_length=255, blank=True, null=True)
     class Meta:
         managed = False
-        db_table = 'Product_Unit'
+        db_table = 'product_units'
     def __str__(self):
         return self.unit_name_en
 
@@ -207,6 +207,7 @@ class AppUser(AbstractBaseUser):
         self.save(update_fields=['last_login'])
 
 class DeviceToken(models.Model):
+    id = models.AutoField(primary_key=True)
     user = models.ForeignKey(AppUser, on_delete=models.CASCADE)
     token = models.CharField(max_length=255)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -219,6 +220,7 @@ class OrderStatus(models.TextChoices):
     CANCELLED = 'cancelled', 'Cancelled'
 
 class App_Order(models.Model):
+    id = models.AutoField(primary_key=True)
     user = models.ForeignKey(AppUser, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     total_price = models.DecimalField(max_digits=18, decimal_places=2, default=0)

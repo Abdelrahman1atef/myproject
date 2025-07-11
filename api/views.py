@@ -1,37 +1,31 @@
-# # api/views.py
+# api/views.py
 
+from datetime import timedelta
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.shortcuts import render
 from django.db import connection
-from rest_framework.response import Response
-from rest_framework.pagination import PageNumberPagination
 from django.core.cache import cache
 import json
 from rest_framework import status
-from .models import Product, DeviceToken, App_Order, App_OrderItem, AppUser, OrderStatus
+from .models import (
+    DeviceToken, Product, ProductUnit, ProductAmount, ProductImages, ProductDescription,
+    ProductGroup, Companys, AppUser, App_Order, App_OrderItem, OrderStatus, ProductCategories
+)
+from django.db import models
 from .serializers import ProductSearchSerializer, UserProfileSerializer, OrderListSerializer, OrderStatusSerializer, ProductSerializer, BestSellerProductSerializer
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from django.db import connection
 from django.db.models import Q, Sum
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
 from rest_framework.permissions import AllowAny
 from .serializers import AppUserSerializer, LoginSerializer,OrderCreateSerializer, DeviceTokenSerializer
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from .models import Product
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from rest_framework.permissions import IsAdminUser
 from rest_framework.generics import ListAPIView
 from rest_framework import generics, permissions
+from .utils import send_fcm_notification_v1
+from django.utils import timezone
 
 def home(request):
     return render(request, 'api/api_list.html')
@@ -39,148 +33,156 @@ def home(request):
 class CategoryView(APIView):   
     permission_classes = [AllowAny]
     def get(self, request):
-        query = """
-            select *
-            from Product_Categories
-        """
+        # Get all categories using ORM
+        categories = ProductCategories.objects.all()
+        
+        # Convert to list of dictionaries
+        categories_data = []
+        for category in categories:
+            category_data = {
+                'category_id': category.category_id,
+                'category_name_ar': category.category_name_ar
+            }
+            categories_data.append(category_data)
 
-        with connection.cursor() as cursor:
-            cursor.execute(query)
-            columns = [col[0] for col in cursor.description]
-            rows = cursor.fetchall()
-
-        groups = []
-        for row in rows:
-            group = dict(zip(columns, row))
-            groups.append(group)
-
-        return Response(groups)
+        return Response(categories_data)
     
 class ProductSearchView(APIView):
     permission_classes = [AllowAny]
     def get(self, request, *args, **kwargs):
-        # Get the search query from the URL parameter
         query = request.query_params.get('q', None)
-
         if query:
             cache_key = f"search_{query}"
             cached_results = cache.get(cache_key)
             if cached_results:
                 return Response(cached_results, status=status.HTTP_200_OK)
-            
             products = Product.objects.filter(
                 Q(product_name_en__icontains=query) |
                 Q(product_name_ar__icontains=query)
             )[:20]
-            product = Product.objects.filter(product_name_en__icontains="test").first()
-            serializer = ProductSearchSerializer(product)
-            print(serializer.data)
-            
-            serializer = ProductSearchSerializer(products, many=True)
-            cache.set(cache_key, serializer.data, timeout=60)  # Cache for 60 seconds
-            return Response(serializer.data, status=status.HTTP_200_OK)
+            product_ids = [product.product_id for product in products]
+            stock_totals = ProductAmount.objects.filter(product_id__in=product_ids).values('product_id').annotate(total=models.Sum('amount'))
+            stock_dict = {item['product_id']: item['total'] for item in stock_totals}
+            unit_ids = set()
+            for product in products:
+                if product.product_unit1:
+                    unit_ids.add(product.product_unit1)
+                if product.product_unit2:
+                    unit_ids.add(product.product_unit2)
+                if product.product_unit3:
+                    unit_ids.add(product.product_unit3)
+            units = ProductUnit.objects.filter(unit_id__in=unit_ids)
+            unit_dict = {unit.unit_id: unit.unit_name_ar for unit in units}
+            images = ProductImages.objects.filter(product_id__in=product_ids)
+            images_dict = {}
+            for img in images:
+                images_dict.setdefault(img.product_id, []).append(img.image_url)
+            pd_ids = [product.pd_id for product in products if hasattr(product, 'pd_id') and product.pd_id]
+            descriptions = ProductDescription.objects.filter(pd_id__in=pd_ids)
+            desc_dict = {desc.pd_id: desc.pd_name_ar for desc in descriptions}
+            results = []
+            for product in products:
+                total_amount = stock_dict.get(product.product_id, 0)
+                product_unit1_name = unit_dict.get(product.product_unit1)
+                product_unit2_name = unit_dict.get(product.product_unit2)
+                product_unit3_name = unit_dict.get(product.product_unit3)
+                product_description = None
+                if hasattr(product, 'pd_id') and product.pd_id:
+                    product_description = desc_dict.get(product.pd_id)
+                product_images = images_dict.get(product.product_id, [])
+                product_data = {
+                    'product_id': product.product_id,
+                    'product_code': product.product_code,
+                    'product_name_ar': product.product_name_ar,
+                    'product_name_en': product.product_name_en,
+                    'product_unit1': product_unit1_name,
+                    'sell_price': product.sell_price,
+                    'product_unit2': product_unit2_name,
+                    'product_unit1_2': product.product_unit1_2,
+                    'unit2_sell_price': product.unit2_sell_price,
+                    'product_unit3': product_unit3_name,
+                    'product_unit1_3': product.product_unit1_3,
+                    'unit3_sell_price': product.unit3_sell_price,
+                    'amount': total_amount,
+                    'product_description': product_description,
+                    'product_images': list(product_images)
+                }
+                results.append(product_data)
+            cache.set(cache_key, results, timeout=60)
+            return Response(results, status=status.HTTP_200_OK)
         return Response([], status=status.HTTP_200_OK)    
     
 class ProductListView(APIView):
     permission_classes = [AllowAny]
     def get(self, request):
-        # Get the page number from the request
         page_number = request.query_params.get('page', 1)
-
-        # Generate a unique cache key for this page
         cache_key = f'product_list_page_{page_number}'
-
-        # Check if the paginated data is cached
         cached_data = cache.get(cache_key)
         if cached_data:
             return Response(cached_data)
-
-        # Define the raw SQL query
-        query = """
-            SELECT 
-                p.product_id,
-                p.product_code,
-                p.product_name_ar,
-                p.product_name_en,
-                (
-				select unit_name_ar
-				from Product_units pu
-				where pu.unit_id=p.product_unit1
-				)as product_unit1,
-                p.sell_price,
-				(
-				select unit_name_ar
-				from Product_units pu
-				where pu.unit_id=p.product_unit2
-				)as product_unit2,
-				p.product_unit1_2,
-				p.unit2_sell_price,
-				(
-				select unit_name_ar
-				from Product_units pu
-				where pu.unit_id=p.product_unit3
-				)as product_unit3,
-				p.product_unit1_3,
-				p.unit3_sell_price,
-                ISNULL(
-                    (SELECT CAST(SUM(pa.amount) AS INT) 
-                     FROM Product_Amount pa
-                     WHERE pa.product_id = p.product_id), 
-                    0
-                ) AS amount,
-                (
-                select pd.pd_name_ar
-                )as product_description,
-                (
-                    SELECT STRING_AGG(pi.image_url, ', ')
-                    FROM Product_Images pi
-                    WHERE pi.product_id = p.product_id
-                ) AS product_images
-            FROM 
-                Products p
-            LEFT JOIN 
-                Product_groups pg ON p.group_id = pg.group_id
-            LEFT JOIN 
-                Companys c ON p.company_id = c.company_id
-            LEFT JOIN 
-                Product_description pd on pd.pd_id=p.pd_id
-        """
-
-        # Execute the raw SQL query
-        with connection.cursor() as cursor:
-            cursor.execute(query)
-            columns = [col[0] for col in cursor.description]
-            rows = cursor.fetchall()
-
-        # Convert the rows into a list of dictionaries
+        products_queryset = Product.objects.all()
+        product_ids = [product.product_id for product in products_queryset]
+        # Batch fetch all stock totals
+        stock_totals = ProductAmount.objects.filter(product_id__in=product_ids).values('product_id').annotate(total=models.Sum('amount'))
+        stock_dict = {item['product_id']: item['total'] for item in stock_totals}
+        # Batch fetch all units
+        unit_ids = set()
+        for product in products_queryset:
+            if product.product_unit1:
+                unit_ids.add(product.product_unit1)
+            if product.product_unit2:
+                unit_ids.add(product.product_unit2)
+            if product.product_unit3:
+                unit_ids.add(product.product_unit3)
+        units = ProductUnit.objects.filter(unit_id__in=unit_ids)
+        unit_dict = {unit.unit_id: unit.unit_name_ar for unit in units}
+        # Batch fetch all images
+        images = ProductImages.objects.filter(product_id__in=product_ids)
+        images_dict = {}
+        for img in images:
+            images_dict.setdefault(img.product_id, []).append(img.image_url)
+        # Batch fetch all descriptions
+        pd_ids = [product.pd_id for product in products_queryset if hasattr(product, 'pd_id') and product.pd_id]
+        descriptions = ProductDescription.objects.filter(pd_id__in=pd_ids)
+        desc_dict = {desc.pd_id: desc.pd_name_ar for desc in descriptions}
         products = []
-        for row in rows:
-            product = dict(zip(columns, row))
-            # Split the product_images string into a list of URLs
-            if product['product_images']:
-                product['product_images'] = product['product_images'].split(', ')
-            else:
-                product['product_images'] = []
-            
-            products.append(product)
-
-        # Set up pagination
+        for product in products_queryset:
+            total_amount = stock_dict.get(product.product_id, 0)
+            product_unit1_name = unit_dict.get(product.product_unit1)
+            product_unit2_name = unit_dict.get(product.product_unit2)
+            product_unit3_name = unit_dict.get(product.product_unit3)
+            product_description = None
+            if hasattr(product, 'pd_id') and product.pd_id:
+                product_description = desc_dict.get(product.pd_id)
+            product_images = images_dict.get(product.product_id, [])
+            product_data = {
+                'product_id': product.product_id,
+                'product_code': product.product_code,
+                'product_name_ar': product.product_name_ar,
+                'product_name_en': product.product_name_en,
+                'product_unit1': product_unit1_name,
+                'sell_price': product.sell_price,
+                'product_unit2': product_unit2_name,
+                'product_unit1_2': product.product_unit1_2,
+                'unit2_sell_price': product.unit2_sell_price,
+                'product_unit3': product_unit3_name,
+                'product_unit1_3': product.product_unit1_3,
+                'unit3_sell_price': product.unit3_sell_price,
+                'amount': total_amount,
+                'product_description': product_description,
+                'product_images': list(product_images)
+            }
+            products.append(product_data)
         paginator = PageNumberPagination()
         paginator.page_size = 20
         result_page = paginator.paginate_queryset(products, request)
-
-        # Build the response data
         response_data = {
             "count": paginator.page.paginator.count,
             "next": paginator.get_next_link(),
             "previous": paginator.get_previous_link(),
             "results": result_page,
         }
-
-        # Cache the entire response
-        cache.set(cache_key, response_data, timeout=60 * 15)  # Cache for 15 minutes
-
-        # Return the response
+        cache.set(cache_key, response_data, timeout=60 * 15)
         return Response(response_data)
 
 class ProductListByCompanyView(APIView):
@@ -189,82 +191,66 @@ class ProductListByCompanyView(APIView):
         page_number = request.query_params.get('page', 1)
         cache_key = f'product_list_company_{company_id}_page_{page_number}'
         cached_data = cache.get(cache_key)
-
         if cached_data:
             return Response(cached_data)
-        query = f"""
-            SELECT 
-                p.product_id,
-                p.product_code,
-                p.product_name_ar,
-                p.product_name_en,
-                (
-				select unit_name_ar
-				from Product_units pu
-				where pu.unit_id=p.product_unit1
-				)as product_unit1,
-                p.sell_price,
-				(
-				select unit_name_ar
-				from Product_units pu
-				where pu.unit_id=p.product_unit2
-				)as product_unit2,
-				p.product_unit1_2,
-				p.unit2_sell_price,
-				(
-				select unit_name_ar
-				from Product_units pu
-				where pu.unit_id=p.product_unit3
-				)as product_unit3,
-				p.product_unit1_3,
-				p.unit3_sell_price,
-                ISNULL(
-                    (SELECT CAST(SUM(pa.amount) AS INT) 
-                     FROM Product_Amount pa
-                     WHERE pa.product_id = p.product_id), 
-                    0
-                ) AS amount,
-                (
-                select pd.pd_name_ar
-                )as product_description,
-                (
-                    SELECT STRING_AGG(pi.image_url, ', ')
-                    FROM Product_Images pi
-                    WHERE pi.product_id = p.product_id
-                ) AS product_images
-            FROM Products p
-            LEFT JOIN Product_groups pg ON p.group_id = pg.group_id
-            LEFT JOIN Companys c ON p.company_id = c.company_id
-            LEFT JOIN Product_description pd on pd.pd_id=p.pd_id
-            WHERE p.company_id = {company_id}
-        """
-
-        with connection.cursor() as cursor:
-            cursor.execute(query)
-            columns = [col[0] for col in cursor.description]
-            rows = cursor.fetchall()
-
+        products_queryset = Product.objects.filter(company_id=company_id)
+        product_ids = [product.product_id for product in products_queryset]
+        stock_totals = ProductAmount.objects.filter(product_id__in=product_ids).values('product_id').annotate(total=models.Sum('amount'))
+        stock_dict = {item['product_id']: item['total'] for item in stock_totals}
+        unit_ids = set()
+        for product in products_queryset:
+            if product.product_unit1:
+                unit_ids.add(product.product_unit1)
+            if product.product_unit2:
+                unit_ids.add(product.product_unit2)
+            if product.product_unit3:
+                unit_ids.add(product.product_unit3)
+        units = ProductUnit.objects.filter(unit_id__in=unit_ids)
+        unit_dict = {unit.unit_id: unit.unit_name_ar for unit in units}
+        images = ProductImages.objects.filter(product_id__in=product_ids)
+        images_dict = {}
+        for img in images:
+            images_dict.setdefault(img.product_id, []).append(img.image_url)
+        pd_ids = [product.pd_id for product in products_queryset if hasattr(product, 'pd_id') and product.pd_id]
+        descriptions = ProductDescription.objects.filter(pd_id__in=pd_ids)
+        desc_dict = {desc.pd_id: desc.pd_name_ar for desc in descriptions}
         products = []
-        for row in rows:
-            product = dict(zip(columns, row))
-            if product['product_images']:
-                product['product_images'] = product['product_images'].split(', ')
-            else:
-                product['product_images'] = []
-            
-            products.append(product)
-
+        for product in products_queryset:
+            total_amount = stock_dict.get(product.product_id, 0)
+            product_unit1_name = unit_dict.get(product.product_unit1)
+            product_unit2_name = unit_dict.get(product.product_unit2)
+            product_unit3_name = unit_dict.get(product.product_unit3)
+            product_description = None
+            if hasattr(product, 'pd_id') and product.pd_id:
+                product_description = desc_dict.get(product.pd_id)
+            product_images = images_dict.get(product.product_id, [])
+            product_data = {
+                'product_id': product.product_id,
+                'product_code': product.product_code,
+                'product_name_ar': product.product_name_ar,
+                'product_name_en': product.product_name_en,
+                'product_unit1': product_unit1_name,
+                'sell_price': product.sell_price,
+                'product_unit2': product_unit2_name,
+                'product_unit1_2': product.product_unit1_2,
+                'unit2_sell_price': product.unit2_sell_price,
+                'product_unit3': product_unit3_name,
+                'product_unit1_3': product.product_unit1_3,
+                'unit3_sell_price': product.unit3_sell_price,
+                'amount': total_amount,
+                'product_description': product_description,
+                'product_images': list(product_images)
+            }
+            products.append(product_data)
         paginator = PageNumberPagination()
         paginator.page_size = 20
         result_page = paginator.paginate_queryset(products, request)
-
         response_data = {
             "count": paginator.page.paginator.count,
             "next": paginator.get_next_link(),
             "previous": paginator.get_previous_link(),
             "results": result_page,
         }
-
         cache.set(cache_key, response_data, timeout=60 * 15)
         return Response(response_data)
 
@@ -274,112 +260,173 @@ class ProductListByGroupView(APIView):
         page_number = request.query_params.get('page', 1)
         cache_key = f'product_list_group_{group_id}_page_{page_number}'
         cached_data = cache.get(cache_key)
-
         if cached_data:
             return Response(cached_data)
-
-        query = f"""
-            SELECT 
-                p.product_id,
-                p.product_code,
-                p.product_name_ar,
-                p.product_name_en,
-                (
-				select unit_name_ar
-				from Product_units pu
-				where pu.unit_id=p.product_unit1
-				)as product_unit1,
-                p.sell_price,
-				(
-				select unit_name_ar
-				from Product_units pu
-				where pu.unit_id=p.product_unit2
-				)as product_unit2,
-				p.product_unit1_2,
-				p.unit2_sell_price,
-				(
-				select unit_name_ar
-				from Product_units pu
-				where pu.unit_id=p.product_unit3
-				)as product_unit3,
-				p.product_unit1_3,
-				p.unit3_sell_price,
-                ISNULL(
-                    (SELECT CAST(SUM(pa.amount) AS INT) 
-                     FROM Product_Amount pa
-                     WHERE pa.product_id = p.product_id), 
-                    0
-                ) AS amount,
-                (
-                select pd.pd_name_ar
-                )as product_description,
-                (
-                    SELECT STRING_AGG(pi.image_url, ', ')
-                    FROM Product_Images pi
-                    WHERE pi.product_id = p.product_id
-                ) AS product_images
-            FROM Products p
-            LEFT JOIN Product_groups pg ON p.group_id = pg.group_id
-            LEFT JOIN Companys c ON p.company_id = c.company_id
-            LEFT JOIN Product_description pd on pd.pd_id=p.pd_id
-            WHERE pg.category_id = {group_id}
-        """
-
-        with connection.cursor() as cursor:
-            cursor.execute(query)
-            columns = [col[0] for col in cursor.description]
-            rows = cursor.fetchall()
-
+        products_queryset = Product.objects.filter(group_id=group_id)
+        product_ids = [product.product_id for product in products_queryset]
+        stock_totals = ProductAmount.objects.filter(product_id__in=product_ids).values('product_id').annotate(total=models.Sum('amount'))
+        stock_dict = {item['product_id']: item['total'] for item in stock_totals}
+        unit_ids = set()
+        for product in products_queryset:
+            if product.product_unit1:
+                unit_ids.add(product.product_unit1)
+            if product.product_unit2:
+                unit_ids.add(product.product_unit2)
+            if product.product_unit3:
+                unit_ids.add(product.product_unit3)
+        units = ProductUnit.objects.filter(unit_id__in=unit_ids)
+        unit_dict = {unit.unit_id: unit.unit_name_ar for unit in units}
+        images = ProductImages.objects.filter(product_id__in=product_ids)
+        images_dict = {}
+        for img in images:
+            images_dict.setdefault(img.product_id, []).append(img.image_url)
+        pd_ids = [product.pd_id for product in products_queryset if hasattr(product, 'pd_id') and product.pd_id]
+        descriptions = ProductDescription.objects.filter(pd_id__in=pd_ids)
+        desc_dict = {desc.pd_id: desc.pd_name_ar for desc in descriptions}
         products = []
-        for row in rows:
-            product = dict(zip(columns, row))
-            if product['product_images']:
-                product['product_images'] = product['product_images'].split(', ')
-            else:
-                product['product_images'] = []
-            
-            products.append(product)
-
+        for product in products_queryset:
+            total_amount = stock_dict.get(product.product_id, 0)
+            product_unit1_name = unit_dict.get(product.product_unit1)
+            product_unit2_name = unit_dict.get(product.product_unit2)
+            product_unit3_name = unit_dict.get(product.product_unit3)
+            product_description = None
+            if hasattr(product, 'pd_id') and product.pd_id:
+                product_description = desc_dict.get(product.pd_id)
+            product_images = images_dict.get(product.product_id, [])
+            product_data = {
+                'product_id': product.product_id,
+                'product_code': product.product_code,
+                'product_name_ar': product.product_name_ar,
+                'product_name_en': product.product_name_en,
+                'product_unit1': product_unit1_name,
+                'sell_price': product.sell_price,
+                'product_unit2': product_unit2_name,
+                'product_unit1_2': product.product_unit1_2,
+                'unit2_sell_price': product.unit2_sell_price,
+                'product_unit3': product_unit3_name,
+                'product_unit1_3': product.product_unit1_3,
+                'unit3_sell_price': product.unit3_sell_price,
+                'amount': total_amount,
+                'product_description': product_description,
+                'product_images': list(product_images)
+            }
+            products.append(product_data)
         paginator = PageNumberPagination()
         paginator.page_size = 20
         result_page = paginator.paginate_queryset(products, request)
-
         response_data = {
             "count": paginator.page.paginator.count,
             "next": paginator.get_next_link(),
             "previous": paginator.get_previous_link(),
             "results": result_page,
         }
-
         cache.set(cache_key, response_data, timeout=60 * 15)
         return Response(response_data)
 
 class ProductDetailView(APIView):
     permission_classes = [AllowAny]
     def get(self, request, product_id):
-        query = f"""
-            {query_head}
-            WHERE p.product_id = {product_id}
-        """
-
-        with connection.cursor() as cursor:
-            cursor.execute(query)
-            columns = [col[0] for col in cursor.description]
-            row = cursor.fetchone()
-
-        if row is None:
-            return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
-
-        product = dict(zip(columns, row))
-        product['company'] = json.loads(product['company']) if product['company'] else None
-        product['product_group'] = json.loads(product['product_group']) if product['product_group'] else None
-        # Split the product_images string into a list of URLs
-        if product['product_images']:
-            product['product_images'] = product['product_images'].split(', ')
-        else:
-            product['product_images'] = []  # Empty list if no images exist
+        try:
+            # Get the product with related data
+            product = Product.objects.select_related().get(product_id=product_id)
             
-        return Response(product)
+            # Get company data
+            company_data = None
+            if product.company_id:
+                try:
+                    company = Companys.objects.get(company_id=product.company_id)
+                    company_data = {
+                        'company_id': company.company_id,
+                        'co_name_en': company.co_name_en,
+                        'co_name_ar': company.co_name_ar
+                    }
+                except Companys.DoesNotExist:
+                    pass
+            
+            # Get product group data
+            product_group_data = None
+            if product.group_id:
+                try:
+                    product_group = ProductGroup.objects.get(group_id=product.group_id)
+                    product_group_data = {
+                        'group_id': product_group.group_id,
+                        'group_name_en': product_group.group_name_en,
+                        'group_name_ar': product_group.group_name_ar
+                    }
+                except ProductGroup.DoesNotExist:
+                    pass
+            
+            # Get product unit names
+            product_unit1_name = None
+            product_unit2_name = None
+            product_unit3_name = None
+            
+            if product.product_unit1:
+                try:
+                    unit1 = ProductUnit.objects.get(unit_id=product.product_unit1)
+                    product_unit1_name = unit1.unit_name_ar
+                except ProductUnit.DoesNotExist:
+                    pass
+            
+            if product.product_unit2:
+                try:
+                    unit2 = ProductUnit.objects.get(unit_id=product.product_unit2)
+                    product_unit2_name = unit2.unit_name_ar
+                except ProductUnit.DoesNotExist:
+                    pass
+            
+            if product.product_unit3:
+                try:
+                    unit3 = ProductUnit.objects.get(unit_id=product.product_unit3)
+                    product_unit3_name = unit3.unit_name_ar
+                except ProductUnit.DoesNotExist:
+                    pass
+            
+            # Get product description
+            product_description = None
+            if hasattr(product, 'pd_id') and product.pd_id:
+                try:
+                    description = ProductDescription.objects.get(pd_id=product.pd_id)
+                    product_description = description.pd_name_ar
+                except ProductDescription.DoesNotExist:
+                    pass
+            
+            # Calculate total amount (stock)
+            total_amount = ProductAmount.objects.filter(product_id=product.product_id).aggregate(
+                total=models.Sum('amount')
+            )['total'] or 0
+            
+            # Get product images
+            product_images = ProductImages.objects.filter(product_id=product.product_id).values_list('image_url', flat=True)
+            
+            # Build response data
+            product_data = {
+                'product_id': product.product_id,
+                'product_code': product.product_code,
+                'product_name_ar': product.product_name_ar,
+                'product_name_en': product.product_name_en,
+                'product_unit1': product_unit1_name,
+                'sell_price': product.sell_price,
+                'product_unit2': product_unit2_name,
+                'product_unit1_2': product.product_unit1_2,
+                'unit2_sell_price': product.unit2_sell_price,
+                'product_unit3': product_unit3_name,
+                'product_unit1_3': product.product_unit1_3,
+                'unit3_sell_price': product.unit3_sell_price,
+                'amount': total_amount,
+                'product_image_url': product.product_image_url,
+                'product_description': product_description,
+                'company': company_data,
+                'product_group': product_group_data,
+                'product_images': list(product_images)
+            }
+            
+            return Response(product_data)
+            
+        except Product.DoesNotExist:
+            return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class UserProfileView(APIView):
     permission_classes = [IsAuthenticated]
@@ -487,6 +534,27 @@ class OrderStatusUpdateAPIView(generics.UpdateAPIView):
     serializer_class = OrderStatusSerializer
     permission_classes = [permissions.IsAdminUser]  # Only admins can change status
 
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        old_status = instance.status
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        new_status = serializer.instance.status
+        # Only notify if status actually changed
+        if old_status != new_status:
+            # Notify the user if they have a device token
+            user_tokens = DeviceToken.objects.filter(user=instance.user).values_list('token', flat=True)
+            for token in user_tokens:
+                send_fcm_notification_v1(
+                    token,
+                    title="Order Status Updated",
+                    body=f"Your order (ID: {instance.id}) status changed to {new_status}.",
+                    data={"order_id": instance.id, "new_status": new_status}
+                )
+        return Response(serializer.data)
+
 class DeviceTokenView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -503,97 +571,41 @@ class DeviceTokenView(APIView):
 
             return Response({'detail': 'Token saved successfully'}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class DeviceTokenRegisterView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = DeviceTokenSerializer(data=request.data)
+        if serializer.is_valid():
+            token = serializer.validated_data['token']
+            # Remove this token from any other user
+            DeviceToken.objects.filter(token=token).exclude(user=request.user).delete()
+            # Update or create for this user
+            device_token, created = DeviceToken.objects.update_or_create(
+                user=request.user, token=token,
+                defaults={}
+            )
+            return Response({'message': 'Token registered.'}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
       
 
-query_head = """
-           SELECT 
-                p.product_id,
-                p.product_code,
-                p.product_name_ar,
-                p.product_name_en,
-                (
-				select unit_name_ar
-				from Product_units pu
-				where pu.unit_id=p.product_unit1
-				)as product_unit1,
-                p.sell_price,
 
-				(
-				select unit_name_ar
-				from Product_units pu
-				where pu.unit_id=p.product_unit2
-				)as product_unit2,
-				p.product_unit1_2,
-				p.unit2_sell_price,
-				(
-				select unit_name_ar
-				from Product_units pu
-				where pu.unit_id=p.product_unit3
-				)as product_unit3,
-				p.product_unit1_3,
-				p.unit3_sell_price,
-                ISNULL((
-                    SELECT CAST(SUM(pa.amount) AS INT) 
-                    FROM Product_Amount pa 
-                    WHERE pa.product_id = p.product_id
-                ), 0) AS amount,
-                p.product_image_url,
-                (
-                select pd.pd_name_ar
-                from Product_description pd
-                where pd.pd_id=p.pd_id
-                )as product_description,
-                -- Get company details
-                JSON_QUERY((
-                    SELECT 
-                        c.company_id,
-                        c.co_name_en,
-                        c.co_name_ar
-                    FROM Companys c
-                    WHERE c.company_id = p.company_id
-                    FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-                )) AS company,
-
-                -- Get product group details
-                JSON_QUERY((
-                    SELECT 
-                        pg.group_id,
-                        pg.group_name_en,
-                        pg.group_name_ar
-                    FROM Product_groups pg
-                    WHERE pg.group_id = p.group_id
-                    FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-                )) AS product_group,
-                (
-                    SELECT STRING_AGG(pi.image_url, ', ') -- Concatenate image URLs into a single string
-                    FROM Product_Images pi
-                    WHERE pi.product_id = p.product_id
-                ) AS product_images -- Returns all image URLs as a comma-separated string
-                
-
-            FROM Products p
-            -- Join with product_group to access category_id
-			JOIN product_groups pg ON p.group_id = pg.group_id
-                """
 
 class BestSellersView(APIView):
     permission_classes = [AllowAny]
     def get(self, request):
-        # Get the page number from the request
         page_number = request.query_params.get('page', 1)
         cache_key = f'best_sellers_page_{page_number}'
         cached_data = cache.get(cache_key)
         if cached_data:
             return Response(cached_data)
-
-        # First, get the best selling product IDs
         best_sellers = (
             App_OrderItem.objects.values('product_id')
             .annotate(total_sold=Sum('quantity'))
-            .order_by('-total_sold')[:50]  # Get top 50 for pagination
+            .order_by('-total_sold')[:50]
         )
         product_ids = [item['product_id'] for item in best_sellers]
-        
         if not product_ids:
             return Response({
                 "count": 0,
@@ -601,194 +613,154 @@ class BestSellersView(APIView):
                 "previous": None,
                 "results": [],
             })
-
-        # Create a list of product IDs for the SQL IN clause
-        product_ids_str = ','.join(map(str, product_ids))
-        
-        # Define the raw SQL query with the same structure as other product views
-        query = f"""
-            SELECT 
-                p.product_id,
-                p.product_code,
-                p.product_name_ar,
-                p.product_name_en,
-                (
-                select unit_name_ar
-                from Product_units pu
-                where pu.unit_id=p.product_unit1
-                )as product_unit1,
-                p.sell_price,
-                (
-                select unit_name_ar
-                from Product_units pu
-                where pu.unit_id=p.product_unit2
-                )as product_unit2,
-                p.product_unit1_2,
-                p.unit2_sell_price,
-                (
-                select unit_name_ar
-                from Product_units pu
-                where pu.unit_id=p.product_unit3
-                )as product_unit3,
-                p.product_unit1_3,
-                p.unit3_sell_price,
-                ISNULL(
-                    (SELECT CAST(SUM(pa.amount) AS INT) 
-                     FROM Product_Amount pa
-                     WHERE pa.product_id = p.product_id), 
-                    0
-                ) AS amount,
-                (
-                select pd.pd_name_ar
-                )as product_description,
-                (
-                    SELECT STRING_AGG(pi.image_url, ', ')
-                    FROM Product_Images pi
-                    WHERE pi.product_id = p.product_id
-                ) AS product_images,
-                -- Add total_sold information
-                (
-                    SELECT CAST(SUM(oi.quantity) AS INT)
-                    FROM App_OrderItem oi
-                    WHERE oi.product_id = p.product_id
-                ) AS total_sold
-            FROM 
-                Products p
-            LEFT JOIN 
-                Product_groups pg ON p.group_id = pg.group_id
-            LEFT JOIN 
-                Companys c ON p.company_id = c.company_id
-            LEFT JOIN 
-                Product_description pd on pd.pd_id=p.pd_id
-            WHERE p.product_id IN ({product_ids_str})
-            ORDER BY total_sold DESC
-        """
-
-        # Execute the raw SQL query
-        with connection.cursor() as cursor:
-            cursor.execute(query)
-            columns = [col[0] for col in cursor.description]
-            rows = cursor.fetchall()
-
-        # Convert the rows into a list of dictionaries
+        products_queryset = Product.objects.filter(product_id__in=product_ids)
+        stock_totals = ProductAmount.objects.filter(product_id__in=product_ids).values('product_id').annotate(total=models.Sum('amount'))
+        stock_dict = {item['product_id']: item['total'] for item in stock_totals}
+        unit_ids = set()
+        for product in products_queryset:
+            if product.product_unit1:
+                unit_ids.add(product.product_unit1)
+            if product.product_unit2:
+                unit_ids.add(product.product_unit2)
+            if product.product_unit3:
+                unit_ids.add(product.product_unit3)
+        units = ProductUnit.objects.filter(unit_id__in=unit_ids)
+        unit_dict = {unit.unit_id: unit.unit_name_ar for unit in units}
+        images = ProductImages.objects.filter(product_id__in=product_ids)
+        images_dict = {}
+        for img in images:
+            images_dict.setdefault(img.product_id, []).append(img.image_url)
+        pd_ids = [product.pd_id for product in products_queryset if hasattr(product, 'pd_id') and product.pd_id]
+        descriptions = ProductDescription.objects.filter(pd_id__in=pd_ids)
+        desc_dict = {desc.pd_id: desc.pd_name_ar for desc in descriptions}
+        # Batch fetch total sold for all products
+        sold_dict = {item['product_id']: item['total_sold'] for item in best_sellers}
         products = []
-        for row in rows:
-            product = dict(zip(columns, row))
-            # Split the product_images string into a list of URLs
-            if product['product_images']:
-                product['product_images'] = product['product_images'].split(', ')
-            else:
-                product['product_images'] = []
-            
-            products.append(product)
-
-        # Set up pagination
+        for product in products_queryset:
+            total_amount = stock_dict.get(product.product_id, 0)
+            product_unit1_name = unit_dict.get(product.product_unit1)
+            product_unit2_name = unit_dict.get(product.product_unit2)
+            product_unit3_name = unit_dict.get(product.product_unit3)
+            product_description = None
+            if hasattr(product, 'pd_id') and product.pd_id:
+                product_description = desc_dict.get(product.pd_id)
+            product_images = images_dict.get(product.product_id, [])
+            total_sold = sold_dict.get(product.product_id, 0)
+            product_data = {
+                'product_id': product.product_id,
+                'product_code': product.product_code,
+                'product_name_ar': product.product_name_ar,
+                'product_name_en': product.product_name_en,
+                'product_unit1': product_unit1_name,
+                'sell_price': product.sell_price,
+                'product_unit2': product_unit2_name,
+                'product_unit1_2': product.product_unit1_2,
+                'unit2_sell_price': product.unit2_sell_price,
+                'product_unit3': product_unit3_name,
+                'product_unit1_3': product.product_unit1_3,
+                'unit3_sell_price': product.unit3_sell_price,
+                'amount': total_amount,
+                'product_description': product_description,
+                'product_images': list(product_images),
+                'total_sold': total_sold
+            }
+            products.append(product_data)
+        products.sort(key=lambda x: x['total_sold'], reverse=True)
         paginator = PageNumberPagination()
         paginator.page_size = 20
         result_page = paginator.paginate_queryset(products, request)
-
-        # Build the response data
         response_data = {
             "count": paginator.page.paginator.count,
             "next": paginator.get_next_link(),
             "previous": paginator.get_previous_link(),
             "results": result_page,
         }
-
-        # Cache the entire response
-        cache.set(cache_key, response_data, timeout=60 * 15)  # Cache for 15 minutes
-
-        # Return the response
+        cache.set(cache_key, response_data, timeout=60 * 15)
         return Response(response_data)
 
 class SeeOurProductsView(APIView):
     permission_classes = [AllowAny]
     def get(self, request):
-        page_number = request.query_params.get('page', 1)
-        cache_key = f'see_our_products_page_{page_number}'
-        cached_data = cache.get(cache_key)
-        if cached_data:
-            return Response(cached_data)
+        try:
+            page_number = request.query_params.get('page', 1)
+            cache_key = f'see_our_products_page_{page_number}'
+            cached_data = cache.get(cache_key)
+            if cached_data:
+                return Response(cached_data)
 
-        query = """
-            SELECT 
-                p.product_id,
-                p.product_code,
-                p.product_name_ar,
-                p.product_name_en,
-                (
-                select unit_name_ar
-                from Product_units pu
-                where pu.unit_id=p.product_unit1
-                )as product_unit1,
-                p.sell_price,
-                (
-                select unit_name_ar
-                from Product_units pu
-                where pu.unit_id=p.product_unit2
-                )as product_unit2,
-                p.product_unit1_2,
-                p.unit2_sell_price,
-                (
-                select unit_name_ar
-                from Product_units pu
-                where pu.unit_id=p.product_unit3
-                )as product_unit3,
-                p.product_unit1_3,
-                p.unit3_sell_price,
-                ISNULL(
-                    (SELECT CAST(SUM(pa.amount) AS INT) 
-                     FROM Product_Amount pa
-                     WHERE pa.product_id = p.product_id), 
-                    0
-                ) AS amount,
-                (
-                select pd.pd_name_ar
-                )as product_description,
-                (
-                    SELECT STRING_AGG(pi.image_url, ', ')
-                    FROM Product_Images pi
-                    WHERE pi.product_id = p.product_id
-                ) AS product_images
-            FROM 
-                Products p
-            LEFT JOIN 
-                Product_groups pg ON p.group_id = pg.group_id
-            LEFT JOIN 
-                Companys c ON p.company_id = c.company_id
-            LEFT JOIN 
-                Product_description pd on pd.pd_id=p.pd_id
-        """
+            # Get all product_ids that are in stock (amount > 0)
+            in_stock_ids = list(ProductAmount.objects.filter(amount__gt=0).values_list('product_id', flat=True).distinct())
+            products_queryset = Product.objects.filter(product_id__in=in_stock_ids)
 
-        with connection.cursor() as cursor:
-            cursor.execute(query)
-            columns = [col[0] for col in cursor.description]
-            rows = cursor.fetchall()
+            # Batch fetch all stock totals for these products
+            stock_totals = ProductAmount.objects.filter(product_id__in=in_stock_ids).values('product_id').annotate(total=models.Sum('amount'))
+            stock_dict = {item['product_id']: item['total'] for item in stock_totals}
 
-        products = []
-        for row in rows:
-            product = dict(zip(columns, row))
-            if product['product_images']:
-                product['product_images'] = product['product_images'].split(', ')
-            else:
-                product['product_images'] = []
-            # Only include products with amount > 0
-            if product.get('amount', 0) and int(product['amount']) > 0:
-                products.append(product)
+            # Batch fetch all units
+            unit_ids = set()
+            for product in products_queryset:
+                if product.product_unit1:
+                    unit_ids.add(product.product_unit1)
+                if product.product_unit2:
+                    unit_ids.add(product.product_unit2)
+                if product.product_unit3:
+                    unit_ids.add(product.product_unit3)
+            units = ProductUnit.objects.filter(unit_id__in=unit_ids)
+            unit_dict = {unit.unit_id: unit.unit_name_ar for unit in units}
 
-        paginator = PageNumberPagination()
-        paginator.page_size = 20
-        result_page = paginator.paginate_queryset(products, request)
+            # Batch fetch all images
+            images = ProductImages.objects.filter(product_id__in=in_stock_ids)
+            images_dict = {}
+            for img in images:
+                images_dict.setdefault(img.product_id, []).append(img.image_url)
 
-        response_data = {
-            "count": paginator.page.paginator.count,
-            "next": paginator.get_next_link(),
-            "previous": paginator.get_previous_link(),
-            "results": result_page,
-        }
+            # Batch fetch all descriptions
+            pd_ids = [product.pd_id for product in products_queryset if hasattr(product, 'pd_id') and product.pd_id]
+            descriptions = ProductDescription.objects.filter(pd_id__in=pd_ids)
+            desc_dict = {desc.pd_id: desc.pd_name_ar for desc in descriptions}
 
-        cache.set(cache_key, response_data, timeout=60 * 15)
-        return Response(response_data)
+            products = []
+            for product in products_queryset:
+                total_amount = stock_dict.get(product.product_id, 0)
+                product_unit1_name = unit_dict.get(product.product_unit1)
+                product_unit2_name = unit_dict.get(product.product_unit2)
+                product_unit3_name = unit_dict.get(product.product_unit3)
+                product_description = None
+                if hasattr(product, 'pd_id') and product.pd_id:
+                    product_description = desc_dict.get(product.pd_id)
+                product_images = images_dict.get(product.product_id, [])
+                product_data = {
+                    'product_id': product.product_id,
+                    'product_code': product.product_code,
+                    'product_name_ar': product.product_name_ar,
+                    'product_name_en': product.product_name_en,
+                    'product_unit1': product_unit1_name,
+                    'sell_price': product.sell_price,
+                    'product_unit2': product_unit2_name,
+                    'product_unit1_2': product.product_unit1_2,
+                    'unit2_sell_price': product.unit2_sell_price,
+                    'product_unit3': product_unit3_name,
+                    'product_unit1_3': product.product_unit1_3,
+                    'unit3_sell_price': product.unit3_sell_price,
+                    'amount': total_amount,
+                    'product_description': product_description,
+                    'product_images': list(product_images)
+                }
+                products.append(product_data)
+            paginator = PageNumberPagination()
+            paginator.page_size = 20
+            result_page = paginator.paginate_queryset(products, request)
+            response_data = {
+                "count": paginator.page.paginator.count,
+                "next": paginator.get_next_link(),
+                "previous": paginator.get_previous_link(),
+                "results": result_page,
+            }
+            cache.set(cache_key, response_data, timeout=60 * 15)
+            return Response(response_data)
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            return Response({"error": str(e)}, status=500)
 
 class AllUsersView(APIView):
     permission_classes = [IsAdminUser]  # Only admin users can see all users
@@ -900,15 +872,9 @@ class UserDetailView(APIView):
                 # Convert unit_type from ID to name
                 unit_type_name = item.unit_type
                 try:
-                    with connection.cursor() as cursor:
-                        cursor.execute("""
-                            SELECT unit_name_ar 
-                            FROM Product_units 
-                            WHERE unit_id = %s
-                        """, [item.unit_type])
-                        result = cursor.fetchone()
-                        unit_type_name = result[0] if result else item.unit_type
-                except Exception:
+                    unit = ProductUnit.objects.get(unit_id=item.unit_type)
+                    unit_type_name = unit.unit_name_ar
+                except ProductUnit.DoesNotExist:
                     unit_type_name = item.unit_type
                 
                 item_data = {
@@ -978,8 +944,8 @@ class DashboardView(APIView):
             return Response(cached_data)
 
         # Get date range (last 30 days by default)
-        from datetime import datetime, timedelta
-        end_date = datetime.now()
+        from datetime import timedelta
+        end_date = timezone.now()
         start_date = end_date - timedelta(days=30)
         
         # 1. Sales Analytics
@@ -1015,41 +981,29 @@ class DashboardView(APIView):
         # Products with zero stock (out of stock) - Limited to top 20 most critical
         out_of_stock_products = []
         try:
-            with connection.cursor() as cursor:
-                cursor.execute("""
-                    SELECT TOP 20
-                        p.product_id,
-                        p.product_name_en,
-                        p.product_name_ar,
-                        ISNULL(SUM(pa.amount), 0) as total_stock
-                    FROM Products p
-                    LEFT JOIN Product_Amount pa ON p.product_id = pa.product_id
-                    GROUP BY p.product_id, p.product_name_en, p.product_name_ar
-                    HAVING ISNULL(SUM(pa.amount), 0) = 0
-                    ORDER BY p.product_name_en ASC
-                """)
-                columns = [col[0] for col in cursor.description]
-                for row in cursor.fetchall():
-                    out_of_stock_products.append(dict(zip(columns, row)))
+            # Get all product_ids and their total stock
+            stock_totals = ProductAmount.objects.values('product_id').annotate(total=models.Sum('amount'))
+            zero_stock_ids = [item['product_id'] for item in stock_totals if not item['total'] or item['total'] == 0]
+            # Also include products that have no ProductAmount rows at all
+            all_product_ids = set(Product.objects.values_list('product_id', flat=True))
+            stocked_product_ids = set(item['product_id'] for item in stock_totals)
+            no_amount_ids = list(all_product_ids - stocked_product_ids)
+            zero_stock_ids += no_amount_ids
+            products_with_stock = Product.objects.filter(product_id__in=zero_stock_ids).order_by('product_name_en')[:20]
+            for product in products_with_stock:
+                out_of_stock_products.append({
+                    'product_id': product.product_id,
+                    'product_name_en': product.product_name_en,
+                    'product_name_ar': product.product_name_ar,
+                    'total_stock': 0
+                })
         except Exception as e:
             print(f"Error getting out of stock products: {e}")
         
-        # Get total count of out of stock products (without fetching all data)
+        # Get total count of out of stock products
         total_out_of_stock_count = 0
         try:
-            with connection.cursor() as cursor:
-                cursor.execute("""
-                    SELECT COUNT(*) as total_count
-                    FROM (
-                        SELECT p.product_id
-                        FROM Products p
-                        LEFT JOIN Product_Amount pa ON p.product_id = pa.product_id
-                        GROUP BY p.product_id
-                        HAVING ISNULL(SUM(pa.amount), 0) = 0
-                    ) as out_of_stock
-                """)
-                result = cursor.fetchone()
-                total_out_of_stock_count = result[0] if result else 0
+            total_out_of_stock_count = len(zero_stock_ids)
         except Exception as e:
             print(f"Error getting out of stock count: {e}")
         

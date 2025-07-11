@@ -3,6 +3,11 @@ from rest_framework.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 from django.db import connection
 from django.http import JsonResponse, Http404
+import requests
+from django.conf import settings
+import json
+from google.oauth2 import service_account
+from google.auth.transport.requests import Request
 
 
 def custom_exception_handler(exc, context):
@@ -87,3 +92,35 @@ def health_check(request):
         'status': 'ok',
         'message': 'Server and DB are running'
     })
+
+def get_firebase_access_token():
+    credentials = service_account.Credentials.from_service_account_file(
+        settings.FIREBASE_CREDENTIALS_FILE,
+        scopes=['https://www.googleapis.com/auth/firebase.messaging']
+    )
+    credentials.refresh(Request())
+    return credentials.token
+
+def send_fcm_notification_v1(token, title, body, data=None):
+    access_token = get_firebase_access_token()
+    url = f"https://fcm.googleapis.com/v1/projects/{settings.FIREBASE_PROJECT_ID}/messages:send"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json; UTF-8",
+    }
+    # Convert all data values to strings
+    if data:
+        data = {k: str(v) for k, v in data.items()}
+    message = {
+        "message": {
+            "token": token,
+            "notification": {
+                "title": title,
+                "body": body,
+            },
+            "data": data or {}
+        }
+    }
+    response = requests.post(url, headers=headers, data=json.dumps(message))
+    print("FCM response:", response.status_code, response.text) 
+    return response.json()
