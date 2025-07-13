@@ -15,6 +15,10 @@ import os
 from django.db.utils import OperationalError
 from django.core.exceptions import ImproperlyConfigured
 from django.db.utils import OperationalError, InterfaceError
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -24,10 +28,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-pww(fs-4u@r1_g%8ij+@$==6zg&tl&d#gw+!b4vy$51q!i(d!n'
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-pww(fs-4u@r1_g%8ij+@$==6zg&tl&d#gw+!b4vy$51q!i(d!n')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DEBUG', 'True').lower() == 'true'
 
 ALLOWED_HOSTS = ['.ngrok-free.app','127.0.0.1', 'localhost']
 
@@ -64,7 +68,7 @@ CHANNEL_LAYERS = {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
             "hosts": [("127.0.0.1", 6379)],
-            "symmetric_encryption_keys": [b"your_secret_key_here"],
+            "symmetric_encryption_keys": [os.environ.get('CHANNEL_SECRET_KEY', 'default_channel_key').encode()],
         },
     },
 }
@@ -77,6 +81,7 @@ CSRF_TRUSTED_ORIGINS = [
     'https://locust-eminent-urchin.ngrok-free.app',
 ]
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',  # Must be at the top
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -84,7 +89,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
 ]
 
 ROOT_URLCONF = 'myproject.urls'
@@ -120,11 +124,11 @@ def validate_database_config():
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',  # MySQL backend
-        'NAME': 'stock',  # Your database name
-        'USER': 'root',  # MySQL username
-        'PASSWORD': 'Az192.168.1.1.',  # MySQL password
-        'HOST': 'localhost',  # MySQL host (usually localhost)
-        'PORT': '3306',  # MySQL default port
+        'NAME': os.environ.get('DB_NAME', 'stock'),  # Your database name
+        'USER': os.environ.get('DB_USER', 'root'),  # MySQL username
+        'PASSWORD': os.environ.get('DB_PASSWORD', ''),  # MySQL password
+        'HOST': os.environ.get('DB_HOST', 'localhost'),  # MySQL host (usually localhost)
+        'PORT': os.environ.get('DB_PORT', '3306'),  # MySQL default port
         'OPTIONS': {
             'charset': 'utf8mb4',  # Use utf8mb4 for full Unicode support
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",  # Strict mode for data integrity
@@ -134,14 +138,8 @@ DATABASES = {
 
 validate_database_config()
 
-# Handle database connection errors
-try:
-    from django.db import connection
-    connection.ensure_connection()
-except (OperationalError, InterfaceError) as e:
-    print(f"Database connection error: {e}")
-    # Notify the administrator or log the error
-    # You can also retry the connection or exit gracefully
+# Handle database connection errors - Removed during app initialization
+# This should be moved to a management command or handled during runtime
 
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
@@ -187,14 +185,52 @@ STATICFILES_DIRS = [
 # Folder where Django will collect static files for production
 STATIC_ROOT = os.path.join(BASE_DIR, 'static')  # This should be a separate folder
 
+# Debug toolbar configuration - temporarily disabled due to migration issues
+# if DEBUG:
+#     INSTALLED_APPS += ['debug_toolbar']
+#     MIDDLEWARE += ['debug_toolbar.middleware.DebugToolbarMiddleware']
+#     INTERNAL_IPS = ['127.0.0.1']
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Firebase Cloud Messaging server key (replace with your actual key)
-FCM_SERVER_KEY = 'YOUR_FIREBASE_SERVER_KEY_HERE'
+FCM_SERVER_KEY = os.environ.get('FCM_SERVER_KEY', '')
 
 # Firebase Cloud Messaging v1 API settings
 FIREBASE_PROJECT_ID = 'ramzy-pharmacy'  # Your Firebase project ID
 FIREBASE_CREDENTIALS_FILE = os.path.join(BASE_DIR, 'firebase', 'ramzy-pharmacy-firebase-adminsdk-fbsvc-b1451cab80.json')  # Path to your service account JSON
+
+# Email Configuration for OTP
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'  # Gmail SMTP server
+EMAIL_PORT = 587  # Gmail SMTP port
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD')
+DEFAULT_FROM_EMAIL = os.environ.get('EMAIL_HOST_USER')
+
+# OTP Configuration
+OTP_EXPIRY_MINUTES = 10  # OTP expires after 10 minutes
+OTP_LENGTH = 6  # 6-digit OTP
+
+# Cache Configuration for OTP
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
+    }
+}
+
+# For production, use Redis cache:
+# CACHES = {
+#     'default': {
+#         'BACKEND': 'django_redis.cache.RedisCache',
+#         'LOCATION': 'redis://127.0.0.1:6379/1',
+#         'OPTIONS': {
+#             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+#         }
+#     }
+# }

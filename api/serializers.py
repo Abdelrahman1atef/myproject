@@ -163,6 +163,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'profile_picture',
             'is_active',
             'is_staff',
+            'is_superuser',  # Added for Flutter API compatibility
             'created_at',
             'updated_at',
             'last_login',
@@ -186,7 +187,12 @@ class AppUserSerializer(serializers.ModelSerializer):
             'profile_picture',
             'is_active',
             'is_staff',
+            'is_superuser',  # Read-only for API responses
             'last_login')
+        extra_kwargs = {
+            'is_superuser': {'read_only': True},  # Cannot be set via API
+            'is_staff': {'read_only': True},      # Cannot be set via API
+        }
         extra_kwargs = {
             'id': {'read_only': True},
             'created_at': {'read_only': True},
@@ -269,6 +275,7 @@ class LoginSerializer(serializers.Serializer):
             'profile_picture': user.profile_picture,
             'is_active': user.is_active,
             'is_staff': user.is_staff,
+            'is_superuser': user.is_superuser,  # Added for Flutter API compatibility
             'last_login': user.last_login
         }
 
@@ -276,6 +283,64 @@ class DeviceTokenSerializer(serializers.ModelSerializer):
     class Meta:
         model = DeviceToken
         fields = ['token']
+
+class RegisterWithOTPSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
+
+    class Meta:
+        model = AppUser
+        fields = (
+            'email',
+            'phone',
+            'first_name',
+            'last_name',
+            'birthdate',
+            'gender',
+            'password',
+            'auth_type',
+            'social_id',
+            'profile_picture',
+            'is_active',
+            'is_staff',
+            'is_superuser',  # Read-only for API responses
+            'last_login')
+        extra_kwargs = {
+            'id': {'read_only': True},
+            'created_at': {'read_only': True},
+            'updated_at': {'read_only': True},
+            'is_superuser': {'read_only': True},  # Cannot be set via registration
+            'is_staff': {'read_only': True},      # Cannot be set via registration
+        }
+
+    def validate_email(self, value):
+        if value and AppUser.objects.filter(email=value).exists():
+            raise serializers.ValidationError("A user with this email already exists.")
+        return value
+
+    def validate_phone(self, value):
+        from .utils import validate_phone_number
+        
+        if not value:
+            raise serializers.ValidationError("Phone number is required.")
+        
+        is_valid, message_or_phone = validate_phone_number(value)
+        if not is_valid:
+            raise serializers.ValidationError(message_or_phone)
+        
+        # Check if phone already exists
+        if AppUser.objects.filter(phone=message_or_phone).exists():
+            raise serializers.ValidationError("A user with this phone number already exists.")
+        
+        return message_or_phone
+
+class VerifyOTPSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    otp_code = serializers.CharField(max_length=6, min_length=6)
+    
+    def validate_otp_code(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("OTP code must contain only digits.")
+        return value
 
 class OrderItemSerializer(serializers.Serializer):
     product_id = serializers.IntegerField()

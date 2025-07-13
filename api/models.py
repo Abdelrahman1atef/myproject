@@ -141,6 +141,11 @@ class AppUserManager(BaseUserManager):
         if not email and not phone:
             raise ValueError(_('The Email or Phone must be set'))
         
+        # Ensure new users are always normal customers (not staff or superuser)
+        extra_fields.setdefault('is_staff', False)
+        extra_fields.setdefault('is_superuser', False)
+        extra_fields.setdefault('is_active', False)  # Will be activated after OTP verification
+        
         # Determine whether to use email or phone as the unique identifier
         if email:
             email = self.normalize_email(email)
@@ -185,11 +190,13 @@ class AppUser(AbstractBaseUser):
     auth_type = models.CharField(max_length=20, default='phone')
     social_id = models.CharField(max_length=255, blank=True, null=True)
     profile_picture = models.URLField(max_length=500, blank=True, null=True)  # Changed to URLField
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=False)
     is_staff = models.BooleanField(default=False)
+    is_superuser = models.BooleanField(default=False)  # Added for Flutter API compatibility
     created_at = models.DateTimeField(auto_now_add=True)  # Remove auto_now_add=True
     updated_at = models.DateTimeField(auto_now=True)  # Remove auto_now=True
     last_login = models.DateTimeField(null=True, blank=True)
+    is_email_verified = models.BooleanField(default=False)
 
     objects = AppUserManager()
 
@@ -234,9 +241,6 @@ class App_Order(models.Model):
         ('cash_on_delivery', 'الدفع عند الاستلام'),
         ('debit_credit_card', 'بطاقة الخصم/الائتمان'),
         ('debit_credit_card_on_delivery', 'بطاقة الخصم/الائتمان عند الاستلام'),
-        # ('cash', 'Cash'),
-        # ('card', 'Card'),
-        # ('other', 'Other'),
     ]
     payment_method = models.CharField(max_length=30, choices=PAYMENT_METHOD_CHOICES, blank=True, null=True)
     # New delivery method fields

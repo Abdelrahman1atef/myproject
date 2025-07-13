@@ -1,5 +1,13 @@
 # api/urls.py
 from django.urls import path
+from .views import (
+    home, CategoryView, ProductSearchView, ProductListView, ProductListByCompanyView,
+    ProductListByGroupView, ProductDetailView, SeeOurProductsView, AllUsersView,
+    UserDetailView, DashboardView, RegisterView, LoginView, CreateOrderView,
+    DeviceTokenView, DeviceTokenRegisterView, BestSellersView, UserProfileView,
+    AdminOrderListView, CustomerOrderListView, OrderStatusUpdateAPIView,
+    VerifyOTPView
+)
 
 from api.utils import health_check
 from . import views
@@ -28,6 +36,7 @@ urlpatterns = [
     path('admin/dashboard/', views.DashboardView.as_view(), name='admin-dashboard'),
     # Post
     path('register/', RegisterView.as_view(), name='register'),
+    path('verify-otp/', VerifyOTPView.as_view(), name='verify_otp'),
     path('login/', LoginView.as_view(), name='login'),
     path('create-order/', CreateOrderView.as_view(), name='create_order'),
     path('save-device-token/', DeviceTokenView.as_view(), name='save-device-token'),

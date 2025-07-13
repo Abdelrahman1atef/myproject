@@ -17,15 +17,17 @@ from django.db import models
 from .serializers import ProductSearchSerializer, UserProfileSerializer, OrderListSerializer, OrderStatusSerializer, ProductSerializer, BestSellerProductSerializer
 from django.db.models import Q, Sum
 from rest_framework.permissions import AllowAny
-from .serializers import AppUserSerializer, LoginSerializer,OrderCreateSerializer, DeviceTokenSerializer
+from .serializers import AppUserSerializer, LoginSerializer,OrderCreateSerializer, DeviceTokenSerializer, RegisterWithOTPSerializer, VerifyOTPSerializer
 from rest_framework.permissions import IsAuthenticated
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from rest_framework.permissions import IsAdminUser
 from rest_framework.generics import ListAPIView
 from rest_framework import generics, permissions
-from .utils import send_fcm_notification_v1
+from .utils import send_fcm_notification_v1, send_otp_email, create_otp_record, verify_otp, validate_phone_number, is_otp_rate_limited, store_user_registration_data, get_user_registration_data, clear_user_registration_data
 from django.utils import timezone
+from django.contrib.auth.hashers import make_password
+from django.conf import settings
 
 def home(request):
     return render(request, 'api/api_list.html')
@@ -440,18 +442,59 @@ class RegisterView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = AppUserSerializer(data=request.data)
+        serializer = RegisterWithOTPSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-
+            # Get validated data
+            validated_data = serializer.validated_data
+            email = validated_data.get('email')
+            
+            # Check rate limiting for OTP
+            if is_otp_rate_limited(email):
+                return Response({
+                    'message': 'Please wait 1 minute before requesting another OTP',
+                    'status': 'error'
+                }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            
+            # Store user registration data in cache
+            user_data = validated_data.copy()
+            user_data['password'] = make_password(user_data['password'])
+            store_user_registration_data(email, user_data)
+            
+            # Create OTP and send email automatically
+            try:
+                otp_data = create_otp_record(email)
+                
+                # Send OTP email
+                if send_otp_email(email, otp_data['otp_code']):
+                    return Response({
+                        'message': f'Registration information received. OTP sent to {email}',
+                        'status': 'otp_sent',
+                        'email': email,
+                        'expires_in_minutes': settings.OTP_EXPIRY_MINUTES
+                    }, status=status.HTTP_200_OK)
+                else:
+                    # Clear stored data if email sending failed
+                    clear_user_registration_data(email)
+                    return Response({
+                        'message': 'Failed to send OTP email',
+                        'status': 'error'
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                    
+            except Exception as e:
+                # Clear stored data if OTP creation failed
+                clear_user_registration_data(email)
+                return Response({
+                    'message': f'Error creating OTP: {str(e)}',
+                    'status': 'error'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
         # Handle errors
         errors = serializer.errors
-
+        
         # Build custom message
         email_error = 'email' in errors
         phone_error = 'phone' in errors
-
+        
         if email_error and phone_error:
             custom_error = "The email or phone number you've entered is already registered. Please try logging in or use different details to sign up."
         elif email_error:
@@ -460,7 +503,7 @@ class RegisterView(APIView):
             custom_error = "This phone number is already registered. Please use another or log in."
         else:
             custom_error = "Please fix the errors below."
-
+        
         # Return consistent format
         return Response({
             "message": custom_error,
@@ -469,7 +512,7 @@ class RegisterView(APIView):
                 "non_field_errors": [custom_error]
             }
         }, status=status.HTTP_400_BAD_REQUEST)
-    
+
 class LoginView(APIView):
     permission_classes = [AllowAny]
 
@@ -1118,3 +1161,68 @@ class DashboardView(APIView):
         cache.set(cache_key, dashboard_data, timeout=60 * 5)
         
         return Response(dashboard_data)
+
+class VerifyOTPView(APIView):
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        serializer = VerifyOTPSerializer(data=request.data)
+        if serializer.is_valid():
+            email = serializer.validated_data['email']
+            otp_code = serializer.validated_data['otp_code']
+            
+            # Verify OTP
+            is_valid, message = verify_otp(email, otp_code)
+            
+            if is_valid:
+                # Get the stored user registration data
+                user_data = get_user_registration_data(email)
+                
+                if not user_data:
+                    return Response({
+                        'message': 'Registration data not found. Please register again.',
+                        'status': 'error'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                try:
+                    # Mark email as verified and user as active
+                    user_data['is_email_verified'] = True
+                    user_data['is_active'] = True
+                    
+                    # Create user with all the stored data
+                    user = AppUser.objects.create(**user_data)
+                    
+                    # Clear the stored registration data
+                    clear_user_registration_data(email)
+                    
+                    # Generate token for the new user
+                    from rest_framework.authtoken.models import Token
+                    token, created = Token.objects.get_or_create(user=user)
+                    
+                    return Response({
+                        'message': 'Email verified successfully! Account created.',
+                        'status': 'success',
+                        'user': {
+                            'id': user.id,
+                            'email': user.email,
+                            'phone': user.phone,
+                            'first_name': user.first_name,
+                            'last_name': user.last_name,
+                            'is_email_verified': user.is_email_verified,
+                            'is_active': user.is_active,
+                        },
+                        'token': token.key
+                    }, status=status.HTTP_201_CREATED)
+                    
+                except Exception as e:
+                    return Response({
+                        'message': f'Error creating user: {str(e)}',
+                        'status': 'error'
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            else:
+                return Response({
+                    'message': message,
+                    'status': 'error'
+                }, status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
